@@ -1,0 +1,12 @@
+dspy
+langgraph
+langchain-openai
+chromadb
+tavily-python
+sentence-transformers
+pydantic>=2.0
+python-dotenv
+pypdf
+beautifulsoup4
+requests
+pandas
