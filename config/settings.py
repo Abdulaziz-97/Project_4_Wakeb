@@ -6,6 +6,7 @@ load_dotenv()
 # --- API Keys ---
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 # --- DeepSeek (OpenAI-compatible) ---
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"

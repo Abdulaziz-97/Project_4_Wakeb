@@ -244,6 +244,103 @@ st.markdown("""
     color: #475569;
     font-size: 0.8rem;
 }
+
+/* ── Voice input ─────────────────────────────────────── */
+[data-testid="stAudioInput"] {
+    border: 2px solid #6366f1;
+    border-radius: 12px;
+    padding: 0.3rem;
+}
+
+/* ── Cloud wake word ─────────────────────────────────── */
+.cloud-banner {
+    background: linear-gradient(135deg, #0c4a6e 0%, #1e3a5f 50%, #312e81 100%);
+    border: 1px solid rgba(56,189,248,0.3);
+    border-radius: 12px;
+    padding: 1rem;
+    text-align: center;
+    margin: 0.5rem 0;
+    position: relative;
+    overflow: hidden;
+}
+.cloud-banner::before {
+    content: '';
+    position: absolute;
+    top: -30%;
+    left: -20%;
+    width: 200px;
+    height: 200px;
+    background: radial-gradient(circle, rgba(56,189,248,0.1) 0%, transparent 70%);
+    border-radius: 50%;
+}
+.cloud-banner .cloud-name {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #7dd3fc;
+    letter-spacing: 1px;
+}
+.cloud-banner .cloud-sub {
+    font-size: 0.7rem;
+    color: #94a3b8;
+    margin-top: 0.2rem;
+}
+.cloud-heard {
+    background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+    border: 1px solid #10b981;
+    border-radius: 10px;
+    padding: 0.8rem;
+    text-align: center;
+    animation: cloud-glow 1.5s ease-in-out;
+}
+@keyframes cloud-glow {
+    0% { box-shadow: 0 0 0 0 rgba(16,185,129,0.5); }
+    50% { box-shadow: 0 0 20px 4px rgba(16,185,129,0.3); }
+    100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
+}
+.cloud-heard .heard-text {
+    color: #6ee7b7;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+.cloud-heard .heard-query {
+    color: #a7f3d0;
+    font-size: 0.8rem;
+    margin-top: 0.3rem;
+    font-style: italic;
+}
+.wake-variants {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    justify-content: center;
+    margin-top: 0.4rem;
+}
+.wake-chip {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 999px;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.65rem;
+    color: #7dd3fc;
+    font-family: 'JetBrains Mono', monospace;
+}
+.cloud-no-wake {
+    background: #1c1917;
+    border: 1px solid #78350f;
+    border-radius: 10px;
+    padding: 0.6rem;
+    text-align: center;
+}
+.cloud-no-wake .nw-text {
+    color: #fbbf24;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+.cloud-no-wake .nw-sub {
+    color: #a8a29e;
+    font-size: 0.7rem;
+    margin-top: 0.2rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -701,8 +798,8 @@ def main():
     # ── Header ────────────────────────────────────────────
     st.markdown("""
     <div class="station-header">
-        <h1><span class="live-dot"></span> Weather Agent Station</h1>
-        <p>Multi-Agent Weather Documentation Pipeline &mdash; Production Monitoring Dashboard</p>
+        <h1><span class="live-dot"></span> Weather Agent Station &mdash; <span style="color:#7dd3fc;">Cloud</span></h1>
+        <p>Multi-Agent Weather Documentation Pipeline &mdash; Production Monitoring Dashboard &mdash; Voice Activated</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -710,22 +807,101 @@ def main():
     with st.sidebar:
         st.markdown("### Configuration")
 
-        query = st.text_input(
-            "Weather Query",
-            value="What is the weather in Berlin this week?",
-            placeholder="Enter any weather question...",
+        input_mode = st.radio(
+            "Input Mode",
+            ["Text", "Voice"],
+            horizontal=True,
         )
 
-        presets = [
-            "What is the weather in Berlin this week?",
-            "Current weather in Tokyo, Japan",
-            "5-day forecast for London",
-            "Weather warnings for Miami, Florida",
-            "Is it raining in Paris right now?",
-        ]
-        preset = st.selectbox("Quick Presets", ["(custom)"] + presets)
-        if preset != "(custom)":
-            query = preset
+        query = ""
+
+        if input_mode == "Text":
+            query = st.text_input(
+                "Weather Query",
+                value="What is the weather in Berlin this week?",
+                placeholder="Enter any weather question...",
+            )
+
+            presets = [
+                "What is the weather in Berlin this week?",
+                "Current weather in Tokyo, Japan",
+                "5-day forecast for London",
+                "Weather warnings for Miami, Florida",
+                "Is it raining in Paris right now?",
+            ]
+            preset = st.selectbox("Quick Presets", ["(custom)"] + presets)
+            if preset != "(custom)":
+                query = preset
+
+        else:
+            from wake_word import detect_wake_word, get_variants_display
+            from config.settings import GROQ_API_KEY as _groq_key
+
+            variants = get_variants_display()
+            chips = "".join(f"<span class='wake-chip'>\"{v}\"</span>" for v in variants)
+            st.markdown(
+                f"<div class='cloud-banner'>"
+                f"<div class='cloud-name'>Cloud</div>"
+                f"<div class='cloud-sub'>Weather Agent &mdash; Voice Activated</div>"
+                f"<div class='wake-variants'>{chips}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            if not _groq_key:
+                st.warning(
+                    "**GROQ_API_KEY** not set in `.env`. "
+                    "Get a free key at [console.groq.com/keys]"
+                    "(https://console.groq.com/keys) to enable voice input."
+                )
+
+            audio_data = st.audio_input(
+                "🎙️ Say: \"Hey Cloud, what's the weather in...\"",
+                key="voice_input",
+            )
+
+            if audio_data is not None:
+                audio_bytes = audio_data.getvalue()
+                st.audio(audio_bytes, format="audio/wav")
+
+                if _groq_key:
+                    with st.spinner("Cloud is listening..."):
+                        try:
+                            from stt import transcribe_audio
+                            raw_text = transcribe_audio(audio_bytes)
+                        except Exception as e:
+                            st.error(f"Transcription failed: {e}")
+                            raw_text = ""
+
+                    if raw_text:
+                        result = detect_wake_word(raw_text)
+
+                        if result.detected:
+                            st.markdown(
+                                f"<div class='cloud-heard'>"
+                                f"<div class='heard-text'>"
+                                f"Cloud heard you! (via \"{result.variant}\")"
+                                f"</div>"
+                                f"<div class='heard-query'>"
+                                f"\"{result.query}\"</div>"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+                            query = result.query
+                        else:
+                            st.markdown(
+                                f"<div class='cloud-no-wake'>"
+                                f"<div class='nw-text'>"
+                                f"No wake word detected</div>"
+                                f"<div class='nw-sub'>"
+                                f"Using full transcription as query</div>"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+                            st.caption(f"Heard: \"{raw_text}\"")
+                            query = raw_text
+                else:
+                    st.info("Add GROQ_API_KEY to `.env` to transcribe audio.")
 
         st.divider()
         st.markdown("### Pipeline Version")
@@ -751,6 +927,10 @@ def main():
         run_btn = st.button("Run Pipeline", type="primary", use_container_width=True)
 
     # ── Main area ─────────────────────────────────────────
+
+    if run_btn and not query:
+        st.warning("Please enter a query or record a voice question first.")
+        run_btn = False
 
     if not run_btn:
         # Show idle state
