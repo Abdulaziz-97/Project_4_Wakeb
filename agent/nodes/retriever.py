@@ -118,11 +118,11 @@ def retriever_agent(state: WeatherAgentState) -> dict:
     if not relevant:
         rdem = RDEMError(
             node="retriever",
-            error_type="relevance_low",
+            error_type="relevance_redirect",
             message=(
                 f"CRAG returned action='{crag_output.action}' with score "
-                f"{crag_output.max_score:.2f}, but the LLM quality gate "
-                f"determined the answer does not adequately address the query."
+                f"{crag_output.max_score:.2f}. Quality gate detected stale/insufficient "
+                f"data — redirecting to live web search for fresh results."
             ),
             suggestion="Route to weather_consultant for fresh web search.",
             attempt=1,
@@ -130,11 +130,10 @@ def retriever_agent(state: WeatherAgentState) -> dict:
         return {
             "crag_output": crag_output,
             "crag_rdem": rdem,
-            "global_error_log": state.global_error_log + [rdem],
             "audit_trail": state.audit_trail + [
                 AgentStep(
                     node_name="retriever",
-                    status="error",
+                    status="redirected",
                     error=rdem,
                     timestamp=datetime.utcnow().isoformat(),
                 )

@@ -72,7 +72,7 @@ def print_result(result, label="RESULT"):
     for step in trail:
         status = _get(step, "status", "?")
         name = _get(step, "node_name", "?")
-        icon = "OK" if status == "success" else "!!" if status == "forced_proceed" else "XX"
+        icon = "OK" if status == "success" else ">>" if status == "redirected" else "!!" if status == "forced_proceed" else "XX"
         print(f"  {icon} [{name}] {status}")
 
     # -- Errors --
