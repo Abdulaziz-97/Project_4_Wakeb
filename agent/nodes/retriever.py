@@ -30,36 +30,43 @@ def _answer_is_relevant(query: str, answer: str, action: str) -> bool:
     """LLM quality gate -- the 'Is the retrieved info relevant?' diamond."""
     logger = get_logger()
     readable_action = _ACTION_LABELS.get(action, action)
+    today = datetime.utcnow().strftime("%Y-%m-%d")
     prompt = (
-        "You are a strict relevance judge. Decide if the ANSWER below "
-        "actually provides useful, up-to-date information for the USER QUERY.\n\n"
-        "IMPORTANT: Focus ONLY on the content of the answer itself. "
-        "Ignore how the data was retrieved. If the answer contains concrete, "
-        "current weather data (temperatures, conditions, forecasts) that "
-        "addresses the user's query, it IS relevant.\n\n"
-        "Reject the answer ONLY if:\n"
-        "- The data is clearly outdated / historical and the user asks for "
-        "current info (e.g. data from a past year)\n"
-        "- The answer explicitly says it cannot help, or only suggests "
-        "checking other sources without providing data\n"
-        "- The answer contains NO concrete weather data at all\n"
-        "- The answer is about a completely different location\n\n"
+        "You are a relevance judge for weather answers.\n\n"
+        f"TODAY'S DATE: {today}\n\n"
         f"USER QUERY: {query}\n\n"
-        f"Retrieval method: {readable_action}\n\n"
-        f"ANSWER:\n{answer}\n\n"
-        "Reply with EXACTLY one word: RELEVANT or NOT_RELEVANT"
+        f"ANSWER:\n{answer[:2000]}\n\n"
+        "IMPORTANT: Ignore any disclaimers, hedging, or statements like "
+        "'recommend checking other sources' or 'date discrepancy'. "
+        "Judge ONLY the actual weather data provided.\n\n"
+        "Think step by step:\n"
+        "1. Does the answer mention the correct location?\n"
+        "2. Does it contain concrete weather data (temperatures, conditions)?\n"
+        "3. Do the dates in the data match today's date or this week? "
+        f"(Today is {today}, so April 2026 IS current.)\n\n"
+        "If ALL three are yes, it is relevant.\n\n"
+        "Respond in this EXACT format:\n"
+        "Location: yes/no\n"
+        "Has data: yes/no\n"
+        "Current: yes/no\n"
+        "VERDICT: RELEVANT or NOT_RELEVANT"
     )
     tracer = create_tracer("retriever_quality_gate")
     response = _judge.invoke(
         [HumanMessage(content=prompt)],
         config={"callbacks": [tracer]},
     )
-    verdict = "NOT_RELEVANT" not in response.content.upper()
+    # Parse verdict from last line only
+    lines = response.content.strip().splitlines()
+    last_line = lines[-1].upper() if lines else ""
+    verdict = "RELEVANT" in last_line and "NOT_RELEVANT" not in last_line
+
     logger.info(
         f"  [retriever] Quality gate verdict: "
         f"{'RELEVANT' if verdict else 'NOT_RELEVANT'} "
         f"(action={action})"
     )
+    logger.debug(f"  [retriever] Quality gate reasoning:\n{response.content}")
     return verdict
 
 

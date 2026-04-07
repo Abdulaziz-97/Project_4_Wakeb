@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-
+from crag.answer_ingest import ingest_answer
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
@@ -23,14 +23,20 @@ _react_agent = create_react_agent(
     tools=[web_search],
     prompt=(
         "You are a weather consultant agent — the fallback when the primary "
-        "retrieval system could not provide relevant, current data.\n"
-        "You have a web_search tool. Use it to find CURRENT weather data for "
-        "the user's query. Call the tool multiple times with different queries "
-        "to get comprehensive coverage:\n"
+        "retrieval system could not provide relevant, current data.\n\n"
+        "You will receive a USER QUERY and possibly a PREVIOUS ANSWER that "
+        "was rejected by the quality gate.\n\n"
+        "If a previous answer is provided:\n"
+        "1. First EVALUATE it — identify what is wrong (outdated data? "
+        "wrong location? missing forecast? incomplete?)\n"
+        "2. Then search specifically to FIX those gaps\n"
+        "3. Keep any parts of the previous answer that are correct and current\n\n"
+        "If no previous answer is provided, do a fresh search.\n\n"
+        "You have a web_search tool. Call it multiple times:\n"
         "  1. Current conditions (e.g. 'Berlin current weather temperature')\n"
         "  2. Weekly forecast (e.g. 'Berlin 7 day weather forecast')\n"
         "  3. Warnings/advisories if relevant\n\n"
-        "After gathering data, compile a comprehensive answer that includes:\n"
+        "Your final answer MUST include:\n"
         "- Concrete temperature values in Celsius\n"
         "- Sky conditions, humidity, wind\n"
         "- Multi-day forecast if available\n"
@@ -47,16 +53,15 @@ def weather_consultant(state: WeatherAgentState) -> dict:
     crag_context = ""
     if state.crag_output and state.crag_output.answer:
         crag_context = (
-            "\n\nPrevious retrieval attempt returned this data (it may be "
-            "partially useful — verify and augment, do NOT just repeat it):\n"
-            f"{state.crag_output.answer[:1000]}"
+            f"\n\nPREVIOUS ANSWER (rejected by quality gate — evaluate what's wrong "
+            f"and fix it):\n{state.crag_output.answer[:1500]}"
         )
 
     tracer = create_tracer("weather_consultant")
     try:
         result = _react_agent.invoke(
             {"messages": [HumanMessage(
-                content=f"Find current weather information for: {state.user_query}{crag_context}"
+                content=f"USER QUERY: {state.user_query}{crag_context}"
             )]},
             config={"callbacks": [tracer]},
         )
@@ -77,6 +82,7 @@ def weather_consultant(state: WeatherAgentState) -> dict:
             max_score=0.0,
             is_high_confidence=False,
         )
+
         return {
             "crag_output": empty_output,
             "crag_rdem": None,
@@ -109,6 +115,8 @@ def weather_consultant(state: WeatherAgentState) -> dict:
         max_score=0.0,
         is_high_confidence=False,
     )
+            #Save this web answer to vector store!
+    ingest_answer(state.user_query, crag_output, node_name="weather_consultant")
 
     return {
         "crag_output": crag_output,
