@@ -29,6 +29,10 @@ def setup_dspy():
 
 def main():
     setup_dspy()
+
+    from agent.logger import init_run
+    init_run()
+
     pipeline = CRAGPipeline()
 
     test_queries = [

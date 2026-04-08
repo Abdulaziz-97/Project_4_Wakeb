@@ -22,9 +22,11 @@ def orchestration_agent(state: WeatherAgentState) -> dict:
         next_step = "done"
     elif state.draft_document is not None:
         next_step = "format"
-    elif state.crag_output is not None:
+    elif state.crag_output is not None and state.validation_passed is True:
+        # Data validated (by validator fast-path or consultant) → write
         next_step = "write"
     elif state.crag_rdem is not None:
+        # Retriever crashed → consultant fallback
         next_step = "weather_fallback"
     else:
         next_step = "retrieve"

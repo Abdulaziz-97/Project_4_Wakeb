@@ -60,6 +60,7 @@ def retriever_agent(state: WeatherAgentState) -> dict:
         max_score=max(result["scores"]) if result["scores"] else 0.0,
         is_high_confidence=(result["action"] == "correct"),
         is_ingested=result.get("is_ingested", False),
+        ingested_at=result.get("ingested_at", ""),
     )
 
     # Step 3 -- Pass to validation agent (quality check happens there)

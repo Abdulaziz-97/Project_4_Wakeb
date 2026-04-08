@@ -51,26 +51,27 @@ class AnswerIngester:
     ) -> bool:
         """
         Save a generated answer into the vector store.
-        
+
         Args:
             query: The original user query
             crag_output: The CRAGOutput with answer, sources, action
             node_name: Which node generated this
-            async_mode: If True, run in background thread (non-blocking)
-        
+            async_mode: If True, run in background thread (non-blocking but waited on)
+
         Returns:
             True if successfully queued/ingested, False otherwise
         """
         if async_mode:
-            # Run in background thread - don't block the main pipeline
+            # Run in background thread — NOT daemon so it finishes even if
+            # the main pipeline completes before the write is done.
             thread = Thread(
                 target=self._ingest_answer_sync,
                 args=(query, crag_output, node_name),
-                daemon=True,
+                daemon=False,
                 name=f"ingest-{node_name}"
             )
             thread.start()
-            logger.debug(f"[answer_ingester] Background ingestion queued for {node_name}")
+            logger.debug(f"[answer_ingester] Background ingestion started for {node_name}")
             return True
         else:
             # Synchronous mode (blocks caller)

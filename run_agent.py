@@ -103,6 +103,10 @@ def main():
 
     from agent.graph import build_graph
     from agent.state import WeatherAgentState
+    from agent.logger import init_run, get_logger
+
+    init_run()
+    logger = get_logger()
 
     graph = build_graph()
 

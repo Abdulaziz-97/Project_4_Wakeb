@@ -19,6 +19,7 @@ llm = ChatOpenAI(
 @log_node
 def writer_agent(state: WeatherAgentState) -> dict:
     crag = state.crag_output
+    crag_data = crag.answer if crag and crag.answer else "No weather data available."
 
     prompt = (
         "Convert this weather data into a simple report. Use bullet points only.\n\n"
@@ -27,7 +28,7 @@ def writer_agent(state: WeatherAgentState) -> dict:
         "- Current: [conditions and temp]\n"
         "- Forecast: [next days]\n"
         "- Sources: [list]\n\n"
-        f"Data:\n{crag.answer}"
+        f"Data:\n{crag_data}"
     )
 
     tracer = create_tracer("writer")

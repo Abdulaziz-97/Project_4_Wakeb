@@ -3,6 +3,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# --- Project root (absolute) ---
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # --- API Keys ---
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
@@ -15,7 +18,7 @@ DEEPSEEK_MODEL = "deepseek-chat"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
 # --- ChromaDB ---
-CHROMA_PERSIST_DIR = "data/chroma_db"
+CHROMA_PERSIST_DIR = os.path.join(BASE_DIR, "data", "chroma_db")
 CHROMA_COLLECTION = "weather_docs"
 
 # --- Chunking ---
@@ -36,6 +39,7 @@ DOCUMENT_SOURCES = {
         "open_meteo_forecast": "https://open-meteo.com/en/docs",
         "open_meteo_historical": "https://open-meteo.com/en/docs/historical-weather-api",
     },
+    "markdown": {},
     "files": {
         "berlin_json": "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&current_weather=true&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m",
         "berlin_csv": "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&hourly=temperature_2m&format=csv",

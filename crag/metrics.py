@@ -8,6 +8,7 @@ Evaluates RAG responses using:
 - Context Recall: Fraction of relevant context that was retrieved
 """
 
+import os
 from typing import Optional
 import numpy as np
 from sentence_transformers import util
@@ -214,18 +215,27 @@ class RAGASEvaluator:
 class MetricsLogger:
     """Logs RAGAS metrics for analysis."""
 
-    def __init__(self, log_path: str = "logs/ragas_metrics.json"):
+    def __init__(self, log_path: str = None):
+        if log_path is None:
+            from config.settings import BASE_DIR
+            log_path = os.path.join(BASE_DIR, "logs", "ragas_metrics.json")
         self.log_path = log_path
         self.metrics_history = []
 
     def log_metrics(self, query: str, metrics: dict) -> None:
         """Log metrics for a single query."""
+        import json
         entry = {
             "query": query,
             "metrics": metrics,
             "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
         }
         self.metrics_history.append(entry)
+
+        # Persist to disk
+        os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+        with open(self.log_path, "w", encoding="utf-8") as f:
+            json.dump(self.metrics_history, f, indent=2, default=str)
 
     def get_summary(self) -> dict:
         """Get summary statistics of all logged metrics."""

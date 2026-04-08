@@ -29,7 +29,7 @@ from agent.state import WeatherAgentState
 from agent.logger import init_run, get_logger
 
 SCENARIOS = [
-    "What is the weather in brazil this week?",
+    "What is the weather in Damam this week?",
     # "Current temperature and forecast for Tokyo, Japan",
     # "Is it going to rain in London tomorrow?",
     # "Weather conditions in Dubai right now",

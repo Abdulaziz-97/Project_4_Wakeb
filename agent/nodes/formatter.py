@@ -8,13 +8,18 @@ from agent.logger import log_node
 def formatter(state: WeatherAgentState) -> dict:
     """Simple formatter: wrap markdown in minimal LaTeX without LLM call."""
     crag = state.crag_output
-    
+
     # Build references
     ref_lines = []
-    for i, src in enumerate(crag.sources, 1):
-        ref_lines.append(f"\\item {src}")
+    if crag and crag.sources:
+        for i, src in enumerate(crag.sources, 1):
+            ref_lines.append(f"\\item {src}")
     refs = "\n".join(ref_lines) if ref_lines else "No sources available."
-    
+
+    draft = state.draft_document or "No content available."
+    action = crag.action if crag else "unknown"
+    max_score = crag.max_score if crag else 0.0
+
     # Simple LaTeX wrapper (no LLM call = instant)
     latex = (
         "\\documentclass{article}\n"
@@ -23,13 +28,13 @@ def formatter(state: WeatherAgentState) -> dict:
         "\\usepackage{hyperref}\n"
         "\\geometry{margin=2.5cm}\n"
         "\\begin{document}\n\n"
-        f"{state.draft_document}\n\n"
+        f"{draft}\n\n"
         "\\section{References}\n"
         "\\begin{enumerate}\n"
         f"{refs}\n"
         "\\end{enumerate}\n\n"
-        f"\\textit{{Data confidence: {crag.action} (score: {crag.max_score:.2f}). "
-        f"Retrieval action: {crag.action}.}}\n\n"
+        f"\\textit{{Data confidence: {action} (score: {max_score:.2f}). "
+        f"Retrieval action: {action}.}}\n\n"
         "\\end{document}\n"
     )
 

@@ -24,6 +24,7 @@ class CRAGOutput(BaseModel):
     max_score: float = 0.0
     is_high_confidence: bool = False
     is_ingested: bool = False
+    ingested_at: str = ""  # ISO timestamp — when the cached answer was stored
 
     @model_validator(mode="after")
     def _compute_max_score(self):

@@ -60,6 +60,9 @@ class CRAGPipeline:
             score = self.evaluator(query=query, document=doc["text"])
             scores.append(score)
 
+        if not scores:
+            return self._web_search_path(query)
+
         max_score = max(scores)
         best_idx = scores.index(max_score)
         best_doc = retrieved[best_idx]
@@ -77,9 +80,15 @@ class CRAGPipeline:
         metadata = best_doc.get("metadata", {})
         sources = self._extract_sources(metadata)
         is_ingested = "ingested_at" in metadata
-        ref_str = f"[1] {best_doc['text']}"
-        answer = self.generator(query=query, references=ref_str)
-        
+
+        if is_ingested:
+            # The doc IS an already-generated answer — skip the generator
+            # LLM call entirely.  This saves ~10-15s per cached hit.
+            answer = best_doc["text"]
+        else:
+            ref_str = f"[1] {best_doc['text']}"
+            answer = self.generator(query=query, references=ref_str)
+
         result = {
             "answer": answer,
             "sources": sources,
