@@ -29,16 +29,16 @@ from agent.state import WeatherAgentState
 from agent.logger import init_run, get_logger
 
 SCENARIOS = [
-    "What is the weather in Berlin this week?",
-    "Current temperature and forecast for Tokyo, Japan",
-    "Is it going to rain in London tomorrow?",
-    "Weather conditions in Dubai right now",
-    "What is the 5-day forecast for New York City?",
-    "Current weather in Riyadh, Saudi Arabia",
-    "Will there be snow in Moscow this week?",
-    "Weather and humidity in Mumbai today",
-    "What is the wind speed in Chicago right now?",
-    "Weekly weather forecast for Sydney, Australia",
+    "What is the weather in brazil this week?",
+    # "Current temperature and forecast for Tokyo, Japan",
+    # "Is it going to rain in London tomorrow?",
+    # "Weather conditions in Dubai right now",
+    # "What is the 5-day forecast for New York City?",
+    # "Current weather in Riyadh, Saudi Arabia",
+    # "Will there be snow in Moscow this week?",
+    # "Weather and humidity in Mumbai today",
+    # "What is the wind speed in Chicago right now?",
+    # "Weekly weather forecast for Sydney, Australia",
 ]
 
 

@@ -23,6 +23,7 @@ class CRAGOutput(BaseModel):
     scores: list[float]
     max_score: float = 0.0
     is_high_confidence: bool = False
+    is_ingested: bool = False
 
     @model_validator(mode="after")
     def _compute_max_score(self):
@@ -36,7 +37,6 @@ class CRAGOutput(BaseModel):
 class FactCheckResult(BaseModel):
     is_factual: bool
     issues: list[str] = Field(default_factory=list)
-    verified_temperatures: dict[str, float] = Field(default_factory=dict)
 
 
 class AgentStep(BaseModel):
@@ -57,6 +57,7 @@ class WeatherAgentState(BaseModel):
     # Step 1: Retrieval
     crag_output: Optional[CRAGOutput] = None
     crag_rdem: Optional[RDEMError] = None
+    validation_passed: Optional[bool] = None
 
     # Step 2: Writing
     draft_document: Optional[str] = None

@@ -3,6 +3,7 @@ from tavily import TavilyClient
 from config.settings import TAVILY_API_KEY, HIGH_RELEVANCE, LOW_RELEVANCE
 from vectorstore.chroma_store import ChromaStore
 from crag.modules import Evaluator, Refiner, Rewriter, Generator
+from crag.metrics import RAGASEvaluator, MetricsLogger
 
 
 class CRAGPipeline:
@@ -19,20 +20,34 @@ class CRAGPipeline:
     4. Generate a cited response.
     """
 
-    def __init__(self, store: ChromaStore = None):
+    def __init__(self, store: ChromaStore = None, evaluate_metrics: bool = True):
         self.store = store or ChromaStore()
         self.evaluator = Evaluator()
         self.refiner = Refiner()
         self.rewriter = Rewriter()
         self.generator = Generator()
         self.tavily = TavilyClient(api_key=TAVILY_API_KEY)
+        self.evaluate_metrics = evaluate_metrics
+        if evaluate_metrics:
+            self.ragas_evaluator = RAGASEvaluator()
+            self.metrics_logger = MetricsLogger()
 
     def run(self, query: str) -> dict:
         """
         Run the full CRAG pipeline on a query.
 
         Returns:
-            dict with keys: answer, sources, action, scores
+            dict with keys:
+                - answer: Generated answer
+                - sources: List of sources
+                - action: "correct", "ambiguous", "incorrect", or "web_only"
+                - scores: Relevance scores from evaluation
+                - ragas_metrics: (Optional) RAGAS evaluation metrics if enabled:
+                    - faithfulness: Answer grounded in context (0-1)
+                    - answer_relevance: Answer relevant to query (0-1)
+                    - context_precision: Fraction of context that is relevant (0-1)
+                    - context_recall: Fraction of relevant context retrieved (0-1, optional)
+                    - overall_rag_score: Average of available metrics (0-1)
         """
         # Step 1: Retrieve
         retrieved = self.store.query(query)
@@ -64,7 +79,8 @@ class CRAGPipeline:
         is_ingested = "ingested_at" in metadata
         ref_str = f"[1] {best_doc['text']}"
         answer = self.generator(query=query, references=ref_str)
-        return {
+        
+        result = {
             "answer": answer,
             "sources": sources,
             "action": "correct",
@@ -73,6 +89,18 @@ class CRAGPipeline:
             "ingested_query": metadata.get("query", ""),
             "ingested_at": metadata.get("ingested_at", ""),
         }
+        
+        # Add RAGAS metrics if enabled
+        if self.evaluate_metrics:
+            ragas_metrics = self.ragas_evaluator.evaluate(
+                query=query,
+                answer=answer,
+                contexts=[best_doc['text']],
+            )
+            result["ragas_metrics"] = ragas_metrics
+            self.metrics_logger.log_metrics(query, ragas_metrics)
+        
+        return result
 
     def _incorrect_path(self, query: str, scores: list) -> dict:
         """Low relevance: web search only."""
@@ -93,7 +121,27 @@ class CRAGPipeline:
         ref_str = "\n\n".join(refs)
 
         answer = self.generator(query=query, references=ref_str)
-        return {"answer": answer, "sources": all_sources, "action": "ambiguous", "scores": scores, "is_ingested": False}
+        
+        result = {
+            "answer": answer,
+            "sources": all_sources,
+            "action": "ambiguous",
+            "scores": scores,
+            "is_ingested": False
+        }
+        
+        # Add RAGAS metrics if enabled
+        if self.evaluate_metrics:
+            all_contexts = [refined_local] + web_contents
+            ragas_metrics = self.ragas_evaluator.evaluate(
+                query=query,
+                answer=answer,
+                contexts=all_contexts,
+            )
+            result["ragas_metrics"] = ragas_metrics
+            self.metrics_logger.log_metrics(query, ragas_metrics)
+        
+        return result
 
     def _web_search_path(self, query: str, scores: list = None, action: str = "web_only") -> dict:
         """Perform web search and generate answer."""
@@ -106,7 +154,26 @@ class CRAGPipeline:
         ref_str = "\n\n".join(refs) if refs else "No references found."
 
         answer = self.generator(query=query, references=ref_str)
-        return {"answer": answer, "sources": web_sources, "action": action, "scores": scores or [], "is_ingested": False}
+        
+        result = {
+            "answer": answer,
+            "sources": web_sources,
+            "action": action,
+            "scores": scores or [],
+            "is_ingested": False
+        }
+        
+        # Add RAGAS metrics if enabled
+        if self.evaluate_metrics:
+            ragas_metrics = self.ragas_evaluator.evaluate(
+                query=query,
+                answer=answer,
+                contexts=web_contents,
+            )
+            result["ragas_metrics"] = ragas_metrics
+            self.metrics_logger.log_metrics(query, ragas_metrics)
+        
+        return result
 
     def _do_web_search(self, query: str) -> tuple[list[str], list[str]]:
         """Rewrite query, search via Tavily. Returns (list of content strings, list of source URLs)."""
@@ -151,3 +218,9 @@ class CRAGPipeline:
         if section:
             parts.append(f"section {section}")
         return [" | ".join(parts)]
+
+    def get_metrics_summary(self) -> dict:
+        """Get summary statistics of all logged RAGAS metrics."""
+        if not self.evaluate_metrics:
+            return {"error": "Metrics evaluation not enabled"}
+        return self.metrics_logger.get_summary()

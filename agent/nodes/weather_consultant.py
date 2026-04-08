@@ -20,28 +20,23 @@ llm = ChatOpenAI(
 
 _react_agent = create_react_agent(
     model=llm,
-    tools=[web_search],
+    tools=[web_search],  
     prompt=(
-        "You are a weather consultant agent — the fallback when the primary "
-        "retrieval system could not provide relevant, current data.\n\n"
-        "You will receive a USER QUERY and possibly a PREVIOUS ANSWER that "
-        "was rejected by the quality gate.\n\n"
-        "If a previous answer is provided:\n"
-        "1. First EVALUATE it — identify what is wrong (outdated data? "
-        "wrong location? missing forecast? incomplete?)\n"
-        "2. Then search specifically to FIX those gaps\n"
-        "3. Keep any parts of the previous answer that are correct and current\n\n"
-        "If no previous answer is provided, do a fresh search.\n\n"
-        "You have a web_search tool. Call it multiple times:\n"
-        "  1. Current conditions (e.g. 'Berlin current weather temperature')\n"
-        "  2. Weekly forecast (e.g. 'Berlin 7 day weather forecast')\n"
-        "  3. Warnings/advisories if relevant\n\n"
-        "Your final answer MUST include:\n"
-        "- Concrete temperature values in Celsius\n"
-        "- Sky conditions, humidity, wind\n"
-        "- Multi-day forecast if available\n"
-        "- Source URLs for every piece of data\n\n"
-        "Be factual. Include numbers. Do not guess."
+        "You are a weather data quality assistant. Be FAST and EFFICIENT.\n\n"
+        "USER QUERY: Check the query and previous answer (if any).\n\n"
+        "SEARCH LIMIT: You can make AT MOST 1 combined search.\n"
+        "Call web_search ONCE with all info you need in one query.\n\n"
+        "STRATEGY:\n"
+        "1. If previous answer is recent and looks good → use it as-is\n"
+        "2. If outdated/missing data → make ONE combined search:\n"
+        "   '[location] current weather temperature forecast [time period]'\n"
+        "3. Compile final answer from that one search result\n\n"
+        "FINAL ANSWER MUST HAVE:\n"
+        "- Temperatures in Celsius (current + forecast)\n"
+        "- Conditions (rain, sun, wind, humidity)\n"
+        "- Time period covered (today, this week, etc.)\n"
+        "- Source URLs\n\n"
+        "BE FAST. ONE SEARCH ONLY."
     ),
 )
 
@@ -52,9 +47,16 @@ _URL_PATTERN = re.compile(r"https?://[^\s\]\)\"',]+")
 def weather_consultant(state: WeatherAgentState) -> dict:
     crag_context = ""
     if state.crag_output and state.crag_output.answer:
+        action_hint = {
+            "correct": "This answer came from local documents only (may be outdated).",
+            "ambiguous": "This answer is a MIX of local documents + web search. Some parts may be good, some bad.",
+            "incorrect": "Local documents were irrelevant. This answer came from web search.",
+            "web_only": "This answer came entirely from web search.",
+        }.get(state.crag_output.action, "")
         crag_context = (
-            f"\n\nPREVIOUS ANSWER (rejected by quality gate — evaluate what's wrong "
-            f"and fix it):\n{state.crag_output.answer[:1500]}"
+            f"\n\nSOURCE INFO: {action_hint}\n"
+            f"\nPREVIOUS ANSWER (evaluate — keep good parts, fix bad parts):\n"
+            f"{state.crag_output.answer[:1500]}"
         )
 
     tracer = create_tracer("weather_consultant")
