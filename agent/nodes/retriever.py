@@ -16,7 +16,7 @@ def retriever_agent(state: WeatherAgentState) -> dict:
     try:
         # Run FAST CRAG without metrics
         # evaluate_ragas_async=True will start RAGAS in background thread
-        result = _pipeline.run(normalized_query, evaluate_ragas_async=True)
+        result = _pipeline.run(normalized_query, evaluate_ragas_async=False)
     except Exception as e:
         logger.error(f"  [retriever] CRAGPipeline EXCEPTION: {e}")
         rdem = RDEMError(

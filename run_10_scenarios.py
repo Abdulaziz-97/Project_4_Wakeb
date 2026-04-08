@@ -56,6 +56,8 @@ def main():
     all_latex = []
     summary_rows = []
 
+    ragas_samples = []  # collected after each scenario for post-run evaluation
+
     for idx, query in enumerate(SCENARIOS, 1):
         thread_id = f"scenario_{run_id}_{idx}"
         config = {"configurable": {"thread_id": thread_id}}
@@ -86,6 +88,7 @@ def main():
         crag = result.get("crag_output")
         action = _get(crag, "action", "N/A") if crag else "N/A"
         sources = _get(crag, "sources", []) if crag else []
+        answer = _get(crag, "answer", "") if crag else ""
         trail = result.get("audit_trail", [])
         errors = result.get("global_error_log", [])
         fc = result.get("fact_check_result")
@@ -98,6 +101,15 @@ def main():
         logger.info(f"  Errors: {len(errors)}")
         logger.info(f"  Factual: {_get(fc, 'is_factual', '?') if fc else '?'}")
         logger.info(f"  LaTeX length: {len(latex)} chars")
+
+        # Collect pipeline outputs for post-run RAGAS evaluation
+        if answer:
+            contexts = [s.replace("[web] ", "").replace("[doc] ", "") for s in sources[:3]]
+            contexts = [c for c in contexts if c.strip()]
+            if not contexts:
+                # No source URLs — ingested/correct path: the answer IS the document
+                contexts = [answer]
+            ragas_samples.append({"query": query, "answer": answer, "contexts": contexts})
 
         # Collect
         all_latex.append(
@@ -156,6 +168,58 @@ def main():
     logger.info(f"Total: {ok_count}/10 succeeded in {total_time:.0f}s")
     logger.info(f"LaTeX saved to: {tex_path}")
     logger.info(f"Full log saved to: logs/run_{run_id}.log")
+
+    # ── RAGAS Evaluation (post-run, no pipeline involvement) ─────
+    if ragas_samples:
+        import numpy as np
+        from crag.metrics import RAGASEvaluator, MetricsLogger
+
+        logger.info("")
+        logger.info("=" * 70)
+        logger.info("  RAGAS EVALUATION  (pipeline already finished)")
+        logger.info("=" * 70)
+
+        evaluator = RAGASEvaluator()
+        metrics_logger = MetricsLogger()
+        all_metrics = []
+
+        for sample in ragas_samples:
+            m = evaluator.evaluate(
+                query=sample["query"],
+                answer=sample["answer"],
+                contexts=sample["contexts"],
+            )
+            metrics_logger.log_metrics(sample["query"], m)
+            all_metrics.append(m)
+            logger.info(
+                f"  [{sample['query'][:40]:<40}]  "
+                f"faith={m['faithfulness']:.2f}  "
+                f"rel={m['answer_relevancy']:.2f}  "
+                f"prec={m['context_precision']:.2f}  "
+                f"score={m['overall_rag_score']:.2f}"
+            )
+
+        faithfulness = [m["faithfulness"] for m in all_metrics]
+        relevancy    = [m["answer_relevancy"] for m in all_metrics]
+        precision    = [m["context_precision"] for m in all_metrics]
+        overall      = [m["overall_rag_score"] for m in all_metrics]
+
+        logger.info("-" * 70)
+        logger.info(f"  {'Metric':<22} {'Mean':>6}  {'Min':>6}  {'Max':>6}")
+        logger.info(f"  {'-'*44}")
+        for name, scores in [
+            ("Faithfulness",      faithfulness),
+            ("Answer Relevancy",  relevancy),
+            ("Context Precision", precision),
+            ("Overall RAG Score", overall),
+        ]:
+            logger.info(
+                f"  {name:<22} {np.mean(scores):>6.3f}  "
+                f"{np.min(scores):>6.3f}  {np.max(scores):>6.3f}"
+            )
+        logger.info("=" * 70)
+    else:
+        logger.warning("  No RAGAS samples collected (all scenarios failed).")
 
 
 if __name__ == "__main__":

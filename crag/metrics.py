@@ -1,247 +1,246 @@
 """
-RAGAS metrics evaluation for CRAG pipeline.
-
-Evaluates RAG responses using:
-- Faithfulness: Is answer grounded in retrieved context?
-- Answer Relevance: Is answer relevant to the query?
-- Context Precision: Fraction of retrieved context that is relevant
-- Context Recall: Fraction of relevant context that was retrieved
+RAGAS 0.4.3 metrics evaluation using DeepSeek via instructor-wrapped AsyncOpenAI.
+Falls back to DSPy-based evaluation, then sentence-transformer similarity.
 """
 
 import os
-import re
-from typing import Optional
+import json
+import asyncio
 import numpy as np
-from sentence_transformers import util
-from config.settings import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage
+
+
+def _get_or_create_loop():
+    """Get running event loop or create a new one."""
+    try:
+        return asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
 
 
 class RAGASEvaluator:
-    """Evaluates RAG pipeline using RAGAS-inspired metrics."""
+    """Evaluates RAG pipeline using RAGAS 0.4.3 with DeepSeek."""
 
     def __init__(self):
-        self.llm = ChatOpenAI(
-            model=DEEPSEEK_MODEL,
-            api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_BASE_URL,
-            temperature=0.1,
-            timeout=60,
-        )
+        self._ragas_llm = None
+        self._metrics = {}
+        self._init_ragas()
 
-    def evaluate(
-        self,
-        query: str,
-        answer: str,
-        contexts: list[str],
-        ground_truth: Optional[str] = None,
-    ) -> dict:
+    def _init_ragas(self):
+        """Set up RAGAS 0.4.3 metrics with DeepSeek."""
+        try:
+            import openai
+            import instructor
+            from ragas.metrics import DiscreteMetric, NumericMetric
+            from ragas.llms import LiteLLMStructuredLLM
+            from config.settings import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+
+            async_client = instructor.from_openai(
+                openai.AsyncOpenAI(
+                    api_key=DEEPSEEK_API_KEY,
+                    base_url=DEEPSEEK_BASE_URL,
+                )
+            )
+            self._ragas_llm = LiteLLMStructuredLLM(
+                client=async_client,
+                model=DEEPSEEK_MODEL,
+                provider="deepseek",
+            )
+
+            self._metrics = {
+                "faithfulness": DiscreteMetric(
+                    name="faithfulness",
+                    allowed_values=["yes", "no"],
+                    prompt=(
+                        "Is the response fully supported by the context? "
+                        "Answer 'yes' or 'no'.\n"
+                        "Context: {context}\nResponse: {response}"
+                    ),
+                ),
+                "answer_relevancy": NumericMetric(
+                    name="answer_relevancy",
+                    allowed_values=(0.0, 1.0),
+                    prompt=(
+                        "Score 0.0-1.0: how well does the response answer the question?\n"
+                        "Question: {question}\nResponse: {response}"
+                    ),
+                ),
+                "context_precision": NumericMetric(
+                    name="context_precision",
+                    allowed_values=(0.0, 1.0),
+                    prompt=(
+                        "Score 0.0-1.0: how much of the context is relevant to "
+                        "answering the question?\n"
+                        "Question: {question}\nContext: {context}"
+                    ),
+                ),
+            }
+            print(f"✓ RAGAS 0.4.3 initialized with metrics: {list(self._metrics.keys())}")
+        except Exception as e:
+            print(f"⚠️ RAGAS init failed ({e}), will use DSPy fallback")
+
+    def evaluate(self, query: str, answer: str, contexts: list[str]) -> dict:
         """
-        Evaluate RAG response using RAGAS metrics.
+        Evaluate RAG response.
 
         Args:
             query: User's question.
             answer: Generated answer from RAG.
             contexts: List of retrieved context documents.
-            ground_truth: Optional ground truth for context recall.
 
         Returns:
-            dict containing all metrics and scores.
+            dict with faithfulness, answer_relevancy, context_precision,
+            context_recall (None), overall_rag_score.
         """
-        metrics = {}
+        if self._ragas_llm and self._metrics:
+            try:
+                return _get_or_create_loop().run_until_complete(
+                    self._evaluate_async(query, answer, contexts)
+                )
+            except Exception as e:
+                print(f"⚠️ RAGAS evaluation failed ({e}), using DSPy fallback")
 
-        # 1. Faithfulness: Answer grounded in context?
-        metrics["faithfulness"] = self._evaluate_faithfulness(answer, contexts)
+        # DSPy fallback
+        try:
+            import dspy
+            if dspy.settings.lm is not None:
+                return self._evaluate_with_dspy(query, answer, contexts)
+        except Exception:
+            pass
 
-        # 2. Answer Relevance: Answer relevant to query?
-        metrics["answer_relevance"] = self._evaluate_answer_relevance(query, answer)
+        return self._evaluate_with_similarity(query, answer, contexts)
 
-        # 3. Context Precision: Fraction of context relevant to query?
-        metrics["context_precision"] = self._evaluate_context_precision(query, contexts)
+    async def _evaluate_async(self, query: str, answer: str, contexts: list[str]) -> dict:
+        """Run all three RAGAS metrics concurrently."""
+        context_text = "\n\n".join(contexts) if contexts else ""
 
-        # 4. Context Recall: Fraction of relevant context retrieved? (if ground truth available)
-        if ground_truth:
-            metrics["context_recall"] = self._evaluate_context_recall(
-                ground_truth, contexts
-            )
-        else:
-            metrics["context_recall"] = None
-
-        # 5. Overall RAG score (average of available metrics)
-        available_scores = [v for k, v in metrics.items() if v is not None and k != "context_recall"]
-        metrics["overall_rag_score"] = np.mean(available_scores) if available_scores else 0.0
-
-        return metrics
-
-    def _evaluate_faithfulness(self, answer: str, contexts: list[str]) -> float:
-        """
-        Faithfulness: Does the answer contain only information grounded in context?
-
-        Returns score 0-1 where 1 = fully grounded, 0 = unsupported claims.
-        """
-        if not contexts or not answer.strip():
-            return 0.0
-
-        context_text = "\n\n".join(contexts)
-        prompt = (
-            f"You are a fact-checking evaluator. Your job is to determine if the answer "
-            f"is grounded in the provided context.\n\n"
-            f"CONTEXT:\n{context_text}\n\n"
-            f"ANSWER:\n{answer}\n\n"
-            f"Instructions:\n"
-            f"1. Read the answer carefully.\n"
-            f"2. Check if EVERY factual claim in the answer is supported by the context.\n"
-            f"3. Mark unsupported or contradicted claims.\n"
-            f"4. Give a faithfulness score from 0 to 1, where:\n"
-            f"   - 1.0 = All claims are grounded in context\n"
-            f"   - 0.5 = Some claims are grounded, some are not\n"
-            f"   - 0.0 = No claims are grounded in context\n\n"
-            f"Return format: SCORE: 0.X (e.g., SCORE: 0.8)"
+        faith_task = self._metrics["faithfulness"].ascore(
+            context=context_text, response=answer, llm=self._ragas_llm
+        )
+        rel_task = self._metrics["answer_relevancy"].ascore(
+            question=query, response=answer, llm=self._ragas_llm
+        )
+        prec_task = self._metrics["context_precision"].ascore(
+            question=query, context=context_text, llm=self._ragas_llm
         )
 
+        faith_r, rel_r, prec_r = await asyncio.gather(
+            faith_task, rel_task, prec_task, return_exceptions=True
+        )
+
+        faithfulness = self._parse_result(faith_r, discrete=True)
+        relevancy = self._parse_result(rel_r)
+        precision = self._parse_result(prec_r)
+        overall = float(np.mean([faithfulness, relevancy, precision]))
+
+        return {
+            "faithfulness": max(0.0, min(1.0, faithfulness)),
+            "answer_relevancy": max(0.0, min(1.0, relevancy)),
+            "context_precision": max(0.0, min(1.0, precision)),
+            "context_recall": None,
+            "overall_rag_score": max(0.0, min(1.0, overall)),
+        }
+
+    @staticmethod
+    def _parse_result(result, discrete: bool = False) -> float:
+        """Extract float from MetricResult or exception."""
+        if isinstance(result, Exception):
+            return 0.5
         try:
-            response = self.llm.invoke([HumanMessage(content=prompt)])
-            response_text = response.content.strip()
-            
-            # Extract number using regex (fixes LLM response parsing)
-            match = re.search(r'0\.\d+|1\.0', response_text)
-            if match:
-                score = float(match.group())
-                return max(0.0, min(1.0, score))
-            else:
-                # Fallback: try direct conversion
-                score = float(response_text.split()[-1])
-                return max(0.0, min(1.0, score))
-        except Exception as e:
-            print(f"⚠️ Faithfulness evaluation error: {e}")
-            print(f"   Response: {response_text[:100]}...")
+            value = result.value
+            if discrete:
+                return 1.0 if str(value).strip().lower() == "yes" else 0.0
+            return float(value)
+        except Exception:
             return 0.5
 
-    def _evaluate_answer_relevance(self, query: str, answer: str) -> float:
-        """
-        Answer Relevance: Does the answer address the user's query?
+    # ── DSPy fallback ────────────────────────────────────────────────────────
 
-        Returns score 0-1 where 1 = perfectly relevant, 0 = irrelevant.
-        """
-        if not query.strip() or not answer.strip():
-            return 0.0
-
-        prompt = (
-            f"You are a relevance evaluator. Determine if the answer addresses the query.\n\n"
-            f"QUERY:\n{query}\n\n"
-            f"ANSWER:\n{answer}\n\n"
-            f"Instructions:\n"
-            f"1. Does the answer directly address the query?\n"
-            f"2. Does it provide the information asked for?\n"
-            f"3. Is the answer on-topic and relevant?\n\n"
-            f"Give a relevance score from 0 to 1 where:\n"
-            f"   - 1.0 = Answer perfectly addresses the query\n"
-            f"   - 0.5 = Answer partially addresses the query\n"
-            f"   - 0.0 = Answer is completely irrelevant\n\n"
-            f"Return format: SCORE: 0.X (e.g., SCORE: 0.85)"
+    def _evaluate_with_dspy(self, query: str, answer: str, contexts: list[str]) -> dict:
+        """Use DSPy signatures (same LM as the pipeline) to score each metric."""
+        import dspy
+        from crag.signatures import (
+            FaithfulnessEvaluator,
+            AnswerRelevancyEvaluator,
+            ContextPrecisionEvaluator,
         )
 
+        context_text = "\n\n".join(contexts) if contexts else ""
+
+        faithfulness = self._safe_predict(
+            dspy.Predict(FaithfulnessEvaluator), "faithfulness_score",
+            question=query, answer=answer, context=context_text,
+        )
+        relevancy = self._safe_predict(
+            dspy.Predict(AnswerRelevancyEvaluator), "relevancy_score",
+            question=query, answer=answer,
+        )
+        precision = self._safe_predict(
+            dspy.Predict(ContextPrecisionEvaluator), "precision_score",
+            question=query, context=context_text,
+        )
+        overall = float(np.mean([faithfulness, relevancy, precision]))
+
+        return {
+            "faithfulness": max(0.0, min(1.0, faithfulness)),
+            "answer_relevancy": max(0.0, min(1.0, relevancy)),
+            "context_precision": max(0.0, min(1.0, precision)),
+            "context_recall": None,
+            "overall_rag_score": max(0.0, min(1.0, overall)),
+        }
+
+    @staticmethod
+    def _safe_predict(predictor, output_field: str, **kwargs) -> float:
+        import re
         try:
-            response = self.llm.invoke([HumanMessage(content=prompt)])
-            response_text = response.content.strip()
-            
-            # Extract number using regex (fixes LLM response parsing)
-            match = re.search(r'0\.\d+|1\.0', response_text)
-            if match:
-                score = float(match.group())
-                return max(0.0, min(1.0, score))
-            else:
-                # Fallback: try direct conversion
-                score = float(response_text.split()[-1])
-                return max(0.0, min(1.0, score))
-        except Exception as e:
-            print(f"⚠️ Answer relevance evaluation error: {e}")
-            print(f"   Response: {response_text[:100]}...")
+            result = predictor(**kwargs)
+            value = getattr(result, output_field, None)
+            if isinstance(value, (int, float)) and not np.isnan(float(value)):
+                return float(value)
+            if isinstance(value, str):
+                m = re.search(r"[-+]?\d*\.?\d+", value)
+                if m:
+                    return float(m.group())
+            for text in vars(result).values():
+                if isinstance(text, str):
+                    m = re.search(r"\b(0\.\d+|1\.0+|0|1)\b", text)
+                    if m:
+                        return float(m.group())
+            return 0.5
+        except Exception:
             return 0.5
 
-    def _evaluate_context_precision(self, query: str, contexts: list[str]) -> float:
-        """
-        Context Precision: What fraction of retrieved contexts are relevant to the query?
+    # ── Similarity fallback ──────────────────────────────────────────────────
 
-        Returns score 0-1 where 1 = all contexts relevant, 0 = no contexts relevant.
-        """
-        if not contexts or not query.strip():
-            return 0.0
-
-        relevant_count = 0
-        for context in contexts:
-            if self._is_context_relevant(query, context):
-                relevant_count += 1
-
-        return relevant_count / len(contexts) if contexts else 0.0
-
-    def _evaluate_context_recall(
-        self, ground_truth: str, contexts: list[str]
-    ) -> float:
-        """
-        Context Recall: What fraction of relevant information (ground truth) was retrieved?
-
-        Returns score 0-1 where 1 = all relevant info retrieved, 0 = none retrieved.
-        """
-        if not ground_truth.strip() or not contexts:
-            return 0.0
-
-        prompt = (
-            f"You are a recall evaluator. Determine what fraction of the ground truth "
-            f"information is covered by the retrieved contexts.\n\n"
-            f"GROUND TRUTH:\n{ground_truth}\n\n"
-            f"RETRIEVED CONTEXTS:\n"
-            + "\n---\n".join(contexts)
-            + f"\n\nInstructions:\n"
-            f"1. Identify key facts/claims in the ground truth.\n"
-            f"2. Check which ones appear in the retrieved contexts.\n"
-            f"3. Calculate fraction: (facts found / total facts)\n\n"
-            f"Give a recall score from 0 to 1 where:\n"
-            f"   - 1.0 = All ground truth information is in contexts\n"
-            f"   - 0.5 = Half of ground truth is in contexts\n"
-            f"   - 0.0 = No ground truth information is in contexts\n\n"
-            f"Return format: SCORE: 0.X (e.g., SCORE: 0.88)"
-        )
-
+    def _evaluate_with_similarity(self, query: str, answer: str, contexts: list[str]) -> dict:
         try:
-            response = self.llm.invoke([HumanMessage(content=prompt)])
-            response_text = response.content.strip()
-            
-            # Extract number using regex (fixes LLM response parsing)
-            match = re.search(r'0\.\d+|1\.0', response_text)
-            if match:
-                score = float(match.group())
-                return max(0.0, min(1.0, score))
-            else:
-                # Fallback: try direct conversion
-                score = float(response_text.split()[-1])
-                return max(0.0, min(1.0, score))
-        except Exception as e:
-            print(f"⚠️ Context recall evaluation error: {e}")
-            print(f"   Response: {response_text[:100]}...")
-            return 0.5
-
-    def _is_context_relevant(self, query: str, context: str) -> bool:
-        """Quick check: Is context relevant to query?"""
-        prompt = (
-            f"Is this context relevant to the query? Answer YES or NO only.\n\n"
-            f"QUERY: {query}\n\n"
-            f"CONTEXT: {context}\n\n"
-            f"Respond with ONLY 'YES' or 'NO'."
-        )
-
-        try:
-            response = self.llm.invoke([HumanMessage(content=prompt)])
-            answer = response.content.strip().upper()
-            return answer.startswith("YES")
-        except Exception as e:
-            print(f"Context relevance check error: {e}")
-            return False
+            from sentence_transformers import SentenceTransformer, util
+            model = SentenceTransformer("all-MiniLM-L6-v2")
+            q = model.encode(query, convert_to_tensor=True)
+            a = model.encode(answer, convert_to_tensor=True)
+            c = model.encode(contexts[0] if contexts else "", convert_to_tensor=True)
+            faith = float(util.cos_sim(a, c)[0][0])
+            rel   = float(util.cos_sim(q, a)[0][0])
+            prec  = float(util.cos_sim(q, c)[0][0])
+            overall = float(np.mean([faith, rel, prec]))
+            return {
+                "faithfulness": max(0.0, min(1.0, faith)),
+                "answer_relevancy": max(0.0, min(1.0, rel)),
+                "context_precision": max(0.0, min(1.0, prec)),
+                "context_recall": None,
+                "overall_rag_score": max(0.0, min(1.0, overall)),
+            }
+        except Exception:
+            return {
+                "faithfulness": 0.5, "answer_relevancy": 0.5,
+                "context_precision": 0.5, "context_recall": None,
+                "overall_rag_score": 0.5,
+            }
 
 
 class MetricsLogger:
-    """Logs RAGAS metrics for analysis."""
+    """Logs metrics for analysis."""
 
     def __init__(self, log_path: str = None):
         if log_path is None:
@@ -251,48 +250,32 @@ class MetricsLogger:
         self.metrics_history = []
 
     def log_metrics(self, query: str, metrics: dict) -> None:
-        """Log metrics for a single query."""
-        import json
         entry = {
             "query": query,
             "metrics": metrics,
             "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
         }
         self.metrics_history.append(entry)
-
-        # Persist to disk
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
         with open(self.log_path, "w", encoding="utf-8") as f:
             json.dump(self.metrics_history, f, indent=2, default=str)
 
     def get_summary(self) -> dict:
-        """Get summary statistics of all logged metrics."""
         if not self.metrics_history:
             return {}
-
         all_metrics = {
-            "faithfulness": [],
-            "answer_relevance": [],
-            "context_precision": [],
-            "context_recall": [],
-            "overall_rag_score": [],
+            "faithfulness": [], "answer_relevancy": [],
+            "context_precision": [], "overall_rag_score": [],
         }
-
         for entry in self.metrics_history:
-            metrics = entry["metrics"]
-            all_metrics["faithfulness"].append(metrics.get("faithfulness", 0))
-            all_metrics["answer_relevance"].append(metrics.get("answer_relevance", 0))
-            all_metrics["context_precision"].append(metrics.get("context_precision", 0))
-            if metrics.get("context_recall") is not None:
-                all_metrics["context_recall"].append(metrics["context_recall"])
-            all_metrics["overall_rag_score"].append(metrics.get("overall_rag_score", 0))
-
+            m = entry["metrics"]
+            for k in all_metrics:
+                all_metrics[k].append(m.get(k, 0))
         summary = {}
-        for metric_name, scores in all_metrics.items():
+        for name, scores in all_metrics.items():
             if scores:
-                summary[f"{metric_name}_mean"] = np.mean(scores)
-                summary[f"{metric_name}_std"] = np.std(scores)
-                summary[f"{metric_name}_min"] = np.min(scores)
-                summary[f"{metric_name}_max"] = np.max(scores)
-
+                summary[f"{name}_mean"] = float(np.mean(scores))
+                summary[f"{name}_std"]  = float(np.std(scores))
+                summary[f"{name}_min"]  = float(np.min(scores))
+                summary[f"{name}_max"]  = float(np.max(scores))
         return summary

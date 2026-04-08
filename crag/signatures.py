@@ -27,3 +27,36 @@ class ResponseGenerator(dspy.Signature):
     query: str = dspy.InputField(desc="The user query")
     references: str = dspy.InputField(desc="Numbered references: [1] text... [2] text...")
     answer: str = dspy.OutputField(desc="Answer with [N] citation markers")
+
+
+# ── RAGAS Evaluation Signatures ─────────────────────────────────────────────
+
+class FaithfulnessEvaluator(dspy.Signature):
+    """Score how faithful the answer is to the context (0.0 = hallucinated, 1.0 = fully supported).
+    Check every claim in the answer against the context. Return a float between 0.0 and 1.0."""
+    question: str = dspy.InputField(desc="The user question")
+    answer: str = dspy.InputField(desc="The generated answer to evaluate")
+    context: str = dspy.InputField(desc="Retrieved context used to generate the answer")
+    faithfulness_score: float = dspy.OutputField(
+        desc="Float 0.0-1.0: fraction of answer claims supported by context"
+    )
+
+
+class AnswerRelevancyEvaluator(dspy.Signature):
+    """Score how relevant the answer is to the question (0.0 = irrelevant, 1.0 = perfectly relevant).
+    Penalise answers that are incomplete, contain redundant info, or miss the point."""
+    question: str = dspy.InputField(desc="The user question")
+    answer: str = dspy.InputField(desc="The generated answer to evaluate")
+    relevancy_score: float = dspy.OutputField(
+        desc="Float 0.0-1.0: how well the answer addresses the question"
+    )
+
+
+class ContextPrecisionEvaluator(dspy.Signature):
+    """Score how precise the retrieved context is for answering the question (0.0 = noise, 1.0 = perfectly targeted).
+    Consider whether the context contains exactly what is needed to answer the question."""
+    question: str = dspy.InputField(desc="The user question")
+    context: str = dspy.InputField(desc="Retrieved context passages")
+    precision_score: float = dspy.OutputField(
+        desc="Float 0.0-1.0: how much of the context is relevant to the question"
+    )
