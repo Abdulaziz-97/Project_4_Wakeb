@@ -1,27 +1,22 @@
 from datetime import datetime
-
 from crag.pipeline import CRAGPipeline
 from agent.state import WeatherAgentState, CRAGOutput, RDEMError, AgentStep
 from agent.logger import log_node, get_logger
 
-# Initialize CRAG pipeline with RAGAS metrics evaluation enabled
+# FAST pipeline: evaluate_metrics=False (no blocking RAGAS)
 _pipeline = CRAGPipeline(evaluate_metrics=False)
 
 
 @log_node
 def retriever_agent(state: WeatherAgentState) -> dict:
     logger = get_logger()
-
-    # Normalize query for consistent vector store matching:
-    # 1. Strip leading/trailing whitespace
-    # 2. Collapse multiple spaces to single space
-    # 3. Convert to lowercase
     normalized_query = " ".join(state.user_query.split()).lower()
 
-    # Step 1 -- Run CRAG
     logger.info(f"  [retriever] Calling CRAGPipeline.run('{normalized_query}')")
     try:
-        result = _pipeline.run(normalized_query)
+        # Run FAST CRAG without metrics
+        # evaluate_ragas_async=True will start RAGAS in background thread
+        result = _pipeline.run(normalized_query, evaluate_ragas_async=True)
     except Exception as e:
         logger.error(f"  [retriever] CRAGPipeline EXCEPTION: {e}")
         rdem = RDEMError(
@@ -45,10 +40,8 @@ def retriever_agent(state: WeatherAgentState) -> dict:
             ],
         }
 
-    # Step 2 -- Log raw CRAG result
-    logger.debug(f"  [retriever] CRAG raw result:")
+    logger.debug(f"  [retriever] CRAG result:")
     logger.debug(f"    action:  {result['action']}")
-    logger.debug(f"    scores:  {result['scores']}")
     logger.debug(f"    sources: {result['sources']}")
     logger.debug(f"    answer:  {result['answer'][:300]}...")
 
@@ -63,12 +56,12 @@ def retriever_agent(state: WeatherAgentState) -> dict:
         ingested_at=result.get("ingested_at", ""),
     )
 
-    # Step 3 -- Pass to validation agent (quality check happens there)
     step = AgentStep(
         node_name="retriever",
         status="success",
         timestamp=datetime.utcnow().isoformat(),
     )
+    
     return {
         "crag_output": crag_output,
         "crag_rdem": None,

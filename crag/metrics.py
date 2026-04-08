@@ -9,6 +9,7 @@ Evaluates RAG responses using:
 """
 
 import os
+import re
 from typing import Optional
 import numpy as np
 from sentence_transformers import util
@@ -96,16 +97,25 @@ class RAGASEvaluator:
             f"   - 1.0 = All claims are grounded in context\n"
             f"   - 0.5 = Some claims are grounded, some are not\n"
             f"   - 0.0 = No claims are grounded in context\n\n"
-            f"Respond with ONLY a single decimal number between 0 and 1."
+            f"Return format: SCORE: 0.X (e.g., SCORE: 0.8)"
         )
 
         try:
             response = self.llm.invoke([HumanMessage(content=prompt)])
-            score_str = response.content.strip()
-            score = float(score_str)
-            return max(0.0, min(1.0, score))
+            response_text = response.content.strip()
+            
+            # Extract number using regex (fixes LLM response parsing)
+            match = re.search(r'0\.\d+|1\.0', response_text)
+            if match:
+                score = float(match.group())
+                return max(0.0, min(1.0, score))
+            else:
+                # Fallback: try direct conversion
+                score = float(response_text.split()[-1])
+                return max(0.0, min(1.0, score))
         except Exception as e:
-            print(f"Faithfulness evaluation error: {e}")
+            print(f"⚠️ Faithfulness evaluation error: {e}")
+            print(f"   Response: {response_text[:100]}...")
             return 0.5
 
     def _evaluate_answer_relevance(self, query: str, answer: str) -> float:
@@ -129,16 +139,25 @@ class RAGASEvaluator:
             f"   - 1.0 = Answer perfectly addresses the query\n"
             f"   - 0.5 = Answer partially addresses the query\n"
             f"   - 0.0 = Answer is completely irrelevant\n\n"
-            f"Respond with ONLY a single decimal number between 0 and 1."
+            f"Return format: SCORE: 0.X (e.g., SCORE: 0.85)"
         )
 
         try:
             response = self.llm.invoke([HumanMessage(content=prompt)])
-            score_str = response.content.strip()
-            score = float(score_str)
-            return max(0.0, min(1.0, score))
+            response_text = response.content.strip()
+            
+            # Extract number using regex (fixes LLM response parsing)
+            match = re.search(r'0\.\d+|1\.0', response_text)
+            if match:
+                score = float(match.group())
+                return max(0.0, min(1.0, score))
+            else:
+                # Fallback: try direct conversion
+                score = float(response_text.split()[-1])
+                return max(0.0, min(1.0, score))
         except Exception as e:
-            print(f"Answer relevance evaluation error: {e}")
+            print(f"⚠️ Answer relevance evaluation error: {e}")
+            print(f"   Response: {response_text[:100]}...")
             return 0.5
 
     def _evaluate_context_precision(self, query: str, contexts: list[str]) -> float:
@@ -182,16 +201,25 @@ class RAGASEvaluator:
             f"   - 1.0 = All ground truth information is in contexts\n"
             f"   - 0.5 = Half of ground truth is in contexts\n"
             f"   - 0.0 = No ground truth information is in contexts\n\n"
-            f"Respond with ONLY a single decimal number between 0 and 1."
+            f"Return format: SCORE: 0.X (e.g., SCORE: 0.88)"
         )
 
         try:
             response = self.llm.invoke([HumanMessage(content=prompt)])
-            score_str = response.content.strip()
-            score = float(score_str)
-            return max(0.0, min(1.0, score))
+            response_text = response.content.strip()
+            
+            # Extract number using regex (fixes LLM response parsing)
+            match = re.search(r'0\.\d+|1\.0', response_text)
+            if match:
+                score = float(match.group())
+                return max(0.0, min(1.0, score))
+            else:
+                # Fallback: try direct conversion
+                score = float(response_text.split()[-1])
+                return max(0.0, min(1.0, score))
         except Exception as e:
-            print(f"Context recall evaluation error: {e}")
+            print(f"⚠️ Context recall evaluation error: {e}")
+            print(f"   Response: {response_text[:100]}...")
             return 0.5
 
     def _is_context_relevant(self, query: str, context: str) -> bool:

@@ -1,9 +1,11 @@
 import json
+from threading import Thread
 from tavily import TavilyClient
 from config.settings import TAVILY_API_KEY, HIGH_RELEVANCE, LOW_RELEVANCE
 from vectorstore.chroma_store import ChromaStore
 from crag.modules import Evaluator, Refiner, Rewriter, Generator
 from crag.metrics import RAGASEvaluator, MetricsLogger
+from agent.logger import get_logger
 
 
 class CRAGPipeline:
@@ -18,9 +20,10 @@ class CRAGPipeline:
        - AMBIGUOUS (0.3-0.7): Combine best document with web search results.
        - INCORRECT (<0.3): Discard local retrieval and perform web search via Tavily.
     4. Generate a cited response.
+    5. (Optional) Evaluate with RAGAS independently at the end.
     """
 
-    def __init__(self, store: ChromaStore = None, evaluate_metrics: bool = True):
+    def __init__(self, store: ChromaStore = None, evaluate_metrics: bool = False):
         self.store = store or ChromaStore()
         self.evaluator = Evaluator()
         self.refiner = Refiner()
@@ -28,26 +31,25 @@ class CRAGPipeline:
         self.generator = Generator()
         self.tavily = TavilyClient(api_key=TAVILY_API_KEY)
         self.evaluate_metrics = evaluate_metrics
-        if evaluate_metrics:
-            self.ragas_evaluator = RAGASEvaluator()
-            self.metrics_logger = MetricsLogger()
+        self.ragas_evaluator = RAGASEvaluator()
+        self.metrics_logger = MetricsLogger()
+        self.logger = get_logger()
 
-    def run(self, query: str) -> dict:
+    def run(self, query: str, evaluate_ragas_async: bool = False) -> dict:
         """
-        Run the full CRAG pipeline on a query.
+        Run the full CRAG pipeline on a query (FAST).
 
+        Args:
+            query: User question/query
+            evaluate_ragas_async: If True, run RAGAS evaluation in background thread
+            
         Returns:
             dict with keys:
                 - answer: Generated answer
                 - sources: List of sources
                 - action: "correct", "ambiguous", "incorrect", or "web_only"
                 - scores: Relevance scores from evaluation
-                - ragas_metrics: (Optional) RAGAS evaluation metrics if enabled:
-                    - faithfulness: Answer grounded in context (0-1)
-                    - answer_relevance: Answer relevant to query (0-1)
-                    - context_precision: Fraction of context that is relevant (0-1)
-                    - context_recall: Fraction of relevant context retrieved (0-1, optional)
-                    - overall_rag_score: Average of available metrics (0-1)
+                - ragas_metrics: (Optional) Only if evaluate_metrics=True during __init__
         """
         # Step 1: Retrieve
         retrieved = self.store.query(query)
@@ -69,11 +71,17 @@ class CRAGPipeline:
 
         # Step 3: Route
         if max_score > HIGH_RELEVANCE:
-            return self._correct_path(query, best_doc, scores)
+            result = self._correct_path(query, best_doc, scores)
         elif max_score < LOW_RELEVANCE:
-            return self._incorrect_path(query, scores)
+            result = self._incorrect_path(query, scores)
         else:
-            return self._ambiguous_path(query, best_doc, scores)
+            result = self._ambiguous_path(query, best_doc, scores)
+
+        # Step 4: (Optional) Run RAGAS evaluation independently in background
+        if evaluate_ragas_async:
+            self._evaluate_ragas_async(query, result)
+
+        return result
 
     def _correct_path(self, query: str, best_doc: dict, scores: list) -> dict:
         """High relevance: use retrieved document."""
@@ -82,8 +90,6 @@ class CRAGPipeline:
         is_ingested = "ingested_at" in metadata
 
         if is_ingested:
-            # The doc IS an already-generated answer — skip the generator
-            # LLM call entirely.  This saves ~10-15s per cached hit.
             answer = best_doc["text"]
         else:
             ref_str = f"[1] {best_doc['text']}"
@@ -99,7 +105,7 @@ class CRAGPipeline:
             "ingested_at": metadata.get("ingested_at", ""),
         }
         
-        # Add RAGAS metrics if enabled
+        # Add RAGAS metrics ONLY if inline evaluation enabled
         if self.evaluate_metrics:
             ragas_metrics = self.ragas_evaluator.evaluate(
                 query=query,
@@ -120,10 +126,9 @@ class CRAGPipeline:
         refined_local = self.refiner(document=best_doc["text"])
         web_contents, web_sources = self._do_web_search(query)
 
-        local_sources = self._extract_sources(best_doc["metadata"])
+        local_sources = self._extract_sources(best_doc.get("metadata", {}))
         all_sources = local_sources + web_sources
 
-        # Build numbered references
         refs = [f"[1] {refined_local}"]
         for i, content in enumerate(web_contents, 2):
             refs.append(f"[{i}] {content}")
@@ -139,7 +144,6 @@ class CRAGPipeline:
             "is_ingested": False
         }
         
-        # Add RAGAS metrics if enabled
         if self.evaluate_metrics:
             all_contexts = [refined_local] + web_contents
             ragas_metrics = self.ragas_evaluator.evaluate(
@@ -156,7 +160,6 @@ class CRAGPipeline:
         """Perform web search and generate answer."""
         web_contents, web_sources = self._do_web_search(query)
 
-        # Build numbered references from web results
         refs = []
         for i, content in enumerate(web_contents, 1):
             refs.append(f"[{i}] {content}")
@@ -172,7 +175,6 @@ class CRAGPipeline:
             "is_ingested": False
         }
         
-        # Add RAGAS metrics if enabled
         if self.evaluate_metrics:
             ragas_metrics = self.ragas_evaluator.evaluate(
                 query=query,
@@ -192,44 +194,105 @@ class CRAGPipeline:
             contents = [r.get("content", "") for r in results.get("results", [])]
             sources = [r.get("url", "") for r in results.get("results", [])]
         except Exception as e:
+            self.logger.error(f"[CRAG] Web search failed: {e}")
             contents = [f"Web search failed: {e}"]
             sources = []
 
         return contents, sources
 
+    # ===== INDEPENDENT RAGAS EVALUATION =====
+    
+    def _evaluate_ragas_async(self, query: str, result: dict):
+        """
+        Run RAGAS evaluation in background thread WITHOUT blocking pipeline.
+        
+        Results stored in result dict with key 'ragas_metrics_async'.
+        """
+        thread = Thread(
+            target=self._ragas_worker,
+            args=(query, result),
+            daemon=True
+        )
+        thread.start()
+        self.logger.debug("[CRAG] RAGAS evaluation queued in background")
+
+    def _ragas_worker(self, query: str, result: dict):
+        """Background worker: evaluate answer with RAGAS and store results."""
+        try:
+            answer = result.get("answer", "")
+            sources = result.get("sources", [])
+            
+            # Extract context from sources (simplified)
+            contexts = [s.replace("[web] ", "").replace("[doc] ", "") for s in sources[:3]]
+            contexts = [c for c in contexts if c.strip()]
+            
+            if not contexts:
+                contexts = [answer[:500]]  # Fallback
+            
+            self.logger.debug(f"[CRAG RAGAS Worker] Evaluating answer for query: {query[:50]}...")
+            ragas_metrics = self.ragas_evaluator.evaluate(
+                query=query,
+                answer=answer,
+                contexts=contexts,
+            )
+            
+            # Store results in result dict
+            result["ragas_metrics_async"] = ragas_metrics
+            self.metrics_logger.log_metrics(query, ragas_metrics)
+            
+            self.logger.info(
+                f"[CRAG RAGAS] Completed: "
+                f"faith={ragas_metrics.get('faithfulness', 0):.2f}, "
+                f"rel={ragas_metrics.get('answer_relevance', 0):.2f}, "
+                f"prec={ragas_metrics.get('context_precision', 0):.2f}, "
+                f"score={ragas_metrics.get('overall_rag_score', 0):.2f}"
+            )
+        except Exception as e:
+            self.logger.error(f"[CRAG RAGAS Worker] Failed: {e}")
+            result["ragas_metrics_async"] = None
+
+    def evaluate_result_ragas(self, query: str, result: dict) -> dict:
+        """
+        Synchronous RAGAS evaluation for a CRAG result.
+        Call this to get immediate RAGAS metrics (BLOCKING).
+        
+        Args:
+            query: Original query
+            result: Result dict from run()
+            
+        Returns:
+            result dict with added 'ragas_metrics' key
+        """
+        try:
+            answer = result.get("answer", "")
+            sources = result.get("sources", [])
+            contexts = [s.replace("[web] ", "").replace("[doc] ", "") for s in sources[:3]]
+            contexts = [c for c in contexts if c.strip()]
+            
+            if not contexts:
+                contexts = [answer[:500]]
+            
+            self.logger.info(f"[CRAG] Running RAGAS evaluation synchronously...")
+            ragas_metrics = self.ragas_evaluator.evaluate(
+                query=query,
+                answer=answer,
+                contexts=contexts,
+            )
+            
+            result["ragas_metrics"] = ragas_metrics
+            self.metrics_logger.log_metrics(query, ragas_metrics)
+            
+            return result
+        except Exception as e:
+            self.logger.error(f"[CRAG RAGAS] Sync evaluation failed: {e}")
+            return result
+
     @staticmethod
     def _extract_sources(metadata: dict) -> list[str]:
-        """
-        Extract source list from document metadata.
-
-        Handles two cases:
-        - Ingested answers: metadata has "sources" key with a JSON-encoded list
-        - Original documents: metadata has "source" / "source_type" keys
-        """
-        # Case 1: Ingested answer — "sources" is a JSON string of a list
-        raw_sources = metadata.get("sources")
-        if raw_sources and isinstance(raw_sources, str):
-            try:
-                parsed = json.loads(raw_sources)
-                if isinstance(parsed, list) and parsed:
-                    return parsed
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-        # Case 2: Original document metadata
-        source = metadata.get("source", "unknown")
-        source_type = metadata.get("source_type", "")
-        page = metadata.get("page", "")
-        section = metadata.get("section", "")
-        parts = [f"[{source_type}] {source}"]
-        if page:
-            parts.append(f"page {page}")
-        if section:
-            parts.append(f"section {section}")
-        return [" | ".join(parts)]
-
-    def get_metrics_summary(self) -> dict:
-        """Get summary statistics of all logged RAGAS metrics."""
-        if not self.evaluate_metrics:
-            return {"error": "Metrics evaluation not enabled"}
-        return self.metrics_logger.get_summary()
+        """Extract source URLs or citations from document metadata."""
+        sources = []
+        if "source" in metadata:
+            sources.append(f"[doc] {metadata['source']}")
+        if "url" in metadata:
+            sources.append(f"[web] {metadata['url']}")
+        return sources
