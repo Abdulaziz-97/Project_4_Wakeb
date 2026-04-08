@@ -1,12 +1,12 @@
-"""
-RAGAS metrics evaluation for CRAG pipeline.
-
-Evaluates RAG responses using:
-- Faithfulness: Is answer grounded in retrieved context?
-- Answer Relevance: Is answer relevant to the query?
-- Context Precision: Fraction of retrieved context that is relevant
-- Context Recall: Fraction of relevant context that was retrieved
-"""
+\
+\
+\
+\
+\
+\
+\
+\
+   
 
 import os
 from typing import Optional
@@ -18,7 +18,7 @@ from langchain_core.messages import HumanMessage
 
 
 class RAGASEvaluator:
-    """Evaluates RAG pipeline using RAGAS-inspired metrics."""
+                                                              
 
     def __init__(self):
         self.llm = ChatOpenAI(
@@ -36,30 +36,30 @@ class RAGASEvaluator:
         contexts: list[str],
         ground_truth: Optional[str] = None,
     ) -> dict:
-        """
-        Evaluate RAG response using RAGAS metrics.
-
-        Args:
-            query: User's question.
-            answer: Generated answer from RAG.
-            contexts: List of retrieved context documents.
-            ground_truth: Optional ground truth for context recall.
-
-        Returns:
-            dict containing all metrics and scores.
-        """
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+           
         metrics = {}
 
-        # 1. Faithfulness: Answer grounded in context?
+                                                      
         metrics["faithfulness"] = self._evaluate_faithfulness(answer, contexts)
 
-        # 2. Answer Relevance: Answer relevant to query?
+                                                        
         metrics["answer_relevance"] = self._evaluate_answer_relevance(query, answer)
 
-        # 3. Context Precision: Fraction of context relevant to query?
+                                                                      
         metrics["context_precision"] = self._evaluate_context_precision(query, contexts)
 
-        # 4. Context Recall: Fraction of relevant context retrieved? (if ground truth available)
+                                                                                                
         if ground_truth:
             metrics["context_recall"] = self._evaluate_context_recall(
                 ground_truth, contexts
@@ -67,18 +67,18 @@ class RAGASEvaluator:
         else:
             metrics["context_recall"] = None
 
-        # 5. Overall RAG score (average of available metrics)
+                                                             
         available_scores = [v for k, v in metrics.items() if v is not None and k != "context_recall"]
         metrics["overall_rag_score"] = np.mean(available_scores) if available_scores else 0.0
 
         return metrics
 
     def _evaluate_faithfulness(self, answer: str, contexts: list[str]) -> float:
-        """
-        Faithfulness: Does the answer contain only information grounded in context?
-
-        Returns score 0-1 where 1 = fully grounded, 0 = unsupported claims.
-        """
+\
+\
+\
+\
+           
         if not contexts or not answer.strip():
             return 0.0
 
@@ -109,11 +109,11 @@ class RAGASEvaluator:
             return 0.5
 
     def _evaluate_answer_relevance(self, query: str, answer: str) -> float:
-        """
-        Answer Relevance: Does the answer address the user's query?
-
-        Returns score 0-1 where 1 = perfectly relevant, 0 = irrelevant.
-        """
+\
+\
+\
+\
+           
         if not query.strip() or not answer.strip():
             return 0.0
 
@@ -142,11 +142,11 @@ class RAGASEvaluator:
             return 0.5
 
     def _evaluate_context_precision(self, query: str, contexts: list[str]) -> float:
-        """
-        Context Precision: What fraction of retrieved contexts are relevant to the query?
-
-        Returns score 0-1 where 1 = all contexts relevant, 0 = no contexts relevant.
-        """
+\
+\
+\
+\
+           
         if not contexts or not query.strip():
             return 0.0
 
@@ -160,11 +160,11 @@ class RAGASEvaluator:
     def _evaluate_context_recall(
         self, ground_truth: str, contexts: list[str]
     ) -> float:
-        """
-        Context Recall: What fraction of relevant information (ground truth) was retrieved?
-
-        Returns score 0-1 where 1 = all relevant info retrieved, 0 = none retrieved.
-        """
+\
+\
+\
+\
+           
         if not ground_truth.strip() or not contexts:
             return 0.0
 
@@ -195,7 +195,7 @@ class RAGASEvaluator:
             return 0.5
 
     def _is_context_relevant(self, query: str, context: str) -> bool:
-        """Quick check: Is context relevant to query?"""
+                                                        
         prompt = (
             f"Is this context relevant to the query? Answer YES or NO only.\n\n"
             f"QUERY: {query}\n\n"
@@ -213,7 +213,7 @@ class RAGASEvaluator:
 
 
 class MetricsLogger:
-    """Logs RAGAS metrics for analysis."""
+                                          
 
     def __init__(self, log_path: str = None):
         if log_path is None:
@@ -223,7 +223,7 @@ class MetricsLogger:
         self.metrics_history = []
 
     def log_metrics(self, query: str, metrics: dict) -> None:
-        """Log metrics for a single query."""
+                                             
         import json
         entry = {
             "query": query,
@@ -232,13 +232,13 @@ class MetricsLogger:
         }
         self.metrics_history.append(entry)
 
-        # Persist to disk
+                         
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
         with open(self.log_path, "w", encoding="utf-8") as f:
             json.dump(self.metrics_history, f, indent=2, default=str)
 
     def get_summary(self) -> dict:
-        """Get summary statistics of all logged metrics."""
+                                                           
         if not self.metrics_history:
             return {}
 

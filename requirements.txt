@@ -10,3 +10,8 @@ pypdf
 beautifulsoup4
 requests
 pandas
+pytest
+pytest-mock
+schedule
+groq
+streamlit

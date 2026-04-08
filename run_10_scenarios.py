@@ -1,10 +1,5 @@
-"""
-Run 10 diverse weather scenarios through the full pipeline.
 
-- Full logging to logs/run_<timestamp>.log
-- All LaTeX documents saved to output_all_scenarios.tex
-- Console shows live progress per scenario
-"""
+   
 
 import sys
 import os
@@ -29,16 +24,16 @@ from agent.state import WeatherAgentState
 from agent.logger import init_run, get_logger
 
 SCENARIOS = [
-    "What is the weather in Damam this week?",
-    # "Current temperature and forecast for Tokyo, Japan",
-    # "Is it going to rain in London tomorrow?",
-    # "Weather conditions in Dubai right now",
-    # "What is the 5-day forecast for New York City?",
-    # "Current weather in Riyadh, Saudi Arabia",
-    # "Will there be snow in Moscow this week?",
-    # "Weather and humidity in Mumbai today",
-    # "What is the wind speed in Chicago right now?",
-    # "Weekly weather forecast for Sydney, Australia",
+    "What is the weather in Dammam this week?",
+    "What is the weather in Riyadh today?",
+    "What is the weather in Jeddah tomorrow?",
+    "What is the weather in Mecca this week?",
+    "Tell me the current weather conditions in Abha",
+    "What is the weather in Tabuk this week?",
+    "What is the weekly forecast for Medina?",
+    "Weather conditions in Dubai right now",
+    "What is the weather in Al-Ula this week?",
+    "What is the temperature in Hail today?",
 ]
 
 
@@ -90,7 +85,7 @@ def main():
         errors = result.get("global_error_log", [])
         fc = result.get("fact_check_result")
 
-        # Log summary
+                     
         logger.info(f"SCENARIO {idx} COMPLETED in {elapsed:.1f}s")
         logger.info(f"  CRAG action: {action}")
         logger.info(f"  Sources: {len(sources)}")
@@ -99,7 +94,7 @@ def main():
         logger.info(f"  Factual: {_get(fc, 'is_factual', '?') if fc else '?'}")
         logger.info(f"  LaTeX length: {len(latex)} chars")
 
-        # Collect
+                 
         all_latex.append(
             f"% {'='*66}\n"
             f"% SCENARIO {idx}: {query}\n"
@@ -117,7 +112,7 @@ def main():
             "elapsed": elapsed,
         })
 
-    # --- Save all LaTeX ---
+                            
     tex_path = "output_all_scenarios.tex"
     combined = "All 10 scenario outputs -- auto-generated\n"
     combined += f"Run ID: {run_id}\n\n"

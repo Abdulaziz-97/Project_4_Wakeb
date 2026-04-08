@@ -2,17 +2,17 @@ from config.settings import CHUNK_SIZE, CHUNK_OVERLAP
 
 
 def chunk_documents(documents: list[dict], chunk_size: int = None, overlap: int = None) -> list[dict]:
-    """
-    Split documents into chunks with overlap. Preserves metadata on each chunk.
-
-    Args:
-        documents: list of {text, metadata} dicts from any loader.
-        chunk_size: characters per chunk (default from settings).
-        overlap: character overlap between chunks (default from settings).
-
-    Returns:
-        list of {text, metadata} dicts where metadata includes chunk_index.
-    """
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+       
     chunk_size = chunk_size or CHUNK_SIZE
     overlap = overlap or CHUNK_OVERLAP
 

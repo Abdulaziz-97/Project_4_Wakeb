@@ -1,15 +1,15 @@
-"""
-Validation Agent — lightweight check on retrieved answers.
-Receives {query, answer, date, sources} and decides: VALID or INVALID.
-
-Three check levels:
-  1. FRESHNESS gate  — is the ingested answer still fresh enough for the
-     time window the user asked about? (no LLM, instant)
-  2. FAST PATH       — high-confidence + fresh ingested answer → skip LLM
-  3. SLOW PATH       — full LLM judgment (location, data, currency, coverage)
-"""
+\
+\
+\
+\
+\
+\
+\
+\
+\
+   
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
@@ -26,8 +26,8 @@ _judge = ChatOpenAI(
     timeout=30,
 )
 
-# ── Time-sensitivity detection ──────────────────────────────────────
-# Maps query patterns to max allowed age (in hours) for cached answers.
+                                                                      
+                                                                       
 _TIME_RULES = [
     (re.compile(r"\b(today|tonight|right now|current(ly)?)\b", re.I), 6),
     (re.compile(r"\b(tomorrow)\b", re.I), 12),
@@ -39,7 +39,7 @@ _DEFAULT_MAX_AGE_HOURS = 24
 
 
 def _max_age_for_query(query: str) -> int:
-    """Return max allowed age (hours) for a cached answer given this query."""
+                                                                              
     for pattern, hours in _TIME_RULES:
         if pattern.search(query):
             return hours
@@ -48,27 +48,29 @@ def _max_age_for_query(query: str) -> int:
 
 @log_node
 def validation_agent(state: WeatherAgentState) -> dict:
-    """
-    Validate the retrieved answer against the query and current date.
-
-    1. Freshness gate — reject stale ingested answers instantly.
-    2. Fast path — skip LLM for fresh high-confidence ingested answers.
-    3. Slow path — LLM judges location, data, currency, coverage.
-    """
+\
+\
+\
+\
+\
+\
+       
     logger = get_logger()
 
-    # ── No answer at all → INVALID ──────────────────────────────
+                                                                  
     if not state.crag_output or not state.crag_output.answer:
         logger.info("  [validator] No answer to validate — routing to consultant")
         return _build_result(state, is_valid=False, status="skip")
 
     crag = state.crag_output
 
-    # ── FRESHNESS GATE (ingested answers only) ──────────────────
+                                                                  
     if crag.is_ingested and crag.ingested_at:
         max_hours = _max_age_for_query(state.user_query)
         try:
-            ts = datetime.fromisoformat(crag.ingested_at)
+            ts = datetime.fromisoformat(str(crag.ingested_at).replace("Z", "+00:00"))
+            if ts.tzinfo is not None:
+                ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
             age = datetime.utcnow() - ts
             age_hours = age.total_seconds() / 3600
 
@@ -79,7 +81,7 @@ def validation_agent(state: WeatherAgentState) -> dict:
                 )
                 return _build_result(state, is_valid=False, status="stale")
 
-            # Fresh + high confidence → FAST PATH (no LLM call)
+                                                               
             if crag.is_high_confidence:
                 logger.info(
                     f"  [validator] FAST PATH — fresh ingested answer "
@@ -90,7 +92,7 @@ def validation_agent(state: WeatherAgentState) -> dict:
         except (ValueError, TypeError):
             logger.warning("  [validator] Could not parse ingested_at — falling through to LLM")
 
-    # ── FAST PATH: very high retrieval score on non-ingested docs ─
+                                                                    
     if crag.max_score > 0.85 and not crag.is_ingested:
         logger.info(
             f"  [validator] FAST PATH — very high retrieval score "
@@ -98,8 +100,8 @@ def validation_agent(state: WeatherAgentState) -> dict:
         )
         return _build_result(state, is_valid=True, status="fast_pass_score")
 
-    # ── SLOW PATH: LLM validation ──────────────────────────────
-    today = datetime.utcnow().strftime("%A, %B %d, %Y")
+                                                                 
+    today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
     sources_str = (
         "\n".join(crag.sources[:10]) if crag.sources else "No sources"
     )
@@ -141,7 +143,7 @@ def validation_agent(state: WeatherAgentState) -> dict:
         logger.error(f"  [validator] LLM call failed: {e}")
         return _build_result(state, is_valid=False, status="error")
 
-    # Parse all fields
+                      
     lines = response.content.strip().splitlines()
     checks = {}
     verdict_line = ""
@@ -180,14 +182,14 @@ def validation_agent(state: WeatherAgentState) -> dict:
 
 
 def _build_result(state: WeatherAgentState, is_valid: bool, status: str) -> dict:
-    """Build the standard return dict for the validation agent."""
+                                                                  
     return {
         "validation_passed": is_valid,
         "audit_trail": state.audit_trail + [
             AgentStep(
                 node_name="validation_agent",
                 status=status,
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
             )
         ],
     }

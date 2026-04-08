@@ -4,7 +4,7 @@ from crag.pipeline import CRAGPipeline
 from agent.state import WeatherAgentState, CRAGOutput, RDEMError, AgentStep
 from agent.logger import log_node, get_logger
 
-# Initialize CRAG pipeline with RAGAS metrics evaluation enabled
+                                                                
 _pipeline = CRAGPipeline(evaluate_metrics=False)
 
 
@@ -12,13 +12,13 @@ _pipeline = CRAGPipeline(evaluate_metrics=False)
 def retriever_agent(state: WeatherAgentState) -> dict:
     logger = get_logger()
 
-    # Normalize query for consistent vector store matching:
-    # 1. Strip leading/trailing whitespace
-    # 2. Collapse multiple spaces to single space
-    # 3. Convert to lowercase
+                                                           
+                                          
+                                                 
+                             
     normalized_query = " ".join(state.user_query.split()).lower()
 
-    # Step 1 -- Run CRAG
+                        
     logger.info(f"  [retriever] Calling CRAGPipeline.run('{normalized_query}')")
     try:
         result = _pipeline.run(normalized_query)
@@ -45,7 +45,7 @@ def retriever_agent(state: WeatherAgentState) -> dict:
             ],
         }
 
-    # Step 2 -- Log raw CRAG result
+                                   
     logger.debug(f"  [retriever] CRAG raw result:")
     logger.debug(f"    action:  {result['action']}")
     logger.debug(f"    scores:  {result['scores']}")
@@ -63,7 +63,7 @@ def retriever_agent(state: WeatherAgentState) -> dict:
         ingested_at=result.get("ingested_at", ""),
     )
 
-    # Step 3 -- Pass to validation agent (quality check happens there)
+                                                                      
     step = AgentStep(
         node_name="retriever",
         status="success",

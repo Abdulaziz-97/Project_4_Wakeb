@@ -1,14 +1,14 @@
-"""
-Run this script to download all weather documents and index them into ChromaDB.
-
-Usage:
-    python ingest.py
-"""
+\
+\
+\
+\
+\
+   
 
 import sys
 import os
 
-# Ensure project root is on path
+                                
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config.settings import DOCUMENT_SOURCES
@@ -24,7 +24,7 @@ def ingest_all():
     store = ChromaStore()
     total = 0
 
-    # --- PDFs ---
+                  
     print("--- Ingesting PDFs ---")
     for name, url in DOCUMENT_SOURCES["pdf"].items():
         print(f"  Loading: {name}")
@@ -37,7 +37,7 @@ def ingest_all():
         except Exception as e:
             print(f"  Failed to load {name}: {e}")
 
-    # --- Markdown ---
+                      
     print("--- Ingesting Markdown ---")
     for name, url in DOCUMENT_SOURCES["markdown"].items():
         print(f"  Loading: {name}")
@@ -50,7 +50,7 @@ def ingest_all():
         except Exception as e:
             print(f"  Failed to load {name}: {e}")
 
-    # --- Web pages ---
+                       
     print("--- Ingesting Web Pages ---")
     for name, url in DOCUMENT_SOURCES["web"].items():
         print(f"  Loading: {name}")
@@ -63,7 +63,7 @@ def ingest_all():
         except Exception as e:
             print(f"  Failed to load {name}: {e}")
 
-    # --- Data files (download only, not indexed -- used by file_reader tool) ---
+                                                                                 
     print("--- Downloading Data Files ---")
     for name, url in DOCUMENT_SOURCES["files"].items():
         print(f"  Downloading: {name}")
@@ -78,6 +78,20 @@ def ingest_all():
 
     print(f"\nDone. Total chunks indexed: {total}")
     print(f"ChromaDB document count: {store.count()}")
+
+                                                                     
+    print("\n--- Checking Saudi City Forecast TTL ---")
+    try:
+        from forecast_manager import check_and_refresh
+        refreshed = check_and_refresh()
+        if refreshed:
+            print("  Saudi city forecasts ingested (7-day TTL).")
+        else:
+            print("  Saudi city forecasts are still fresh — skipped.")
+    except Exception as e:
+        print(f"  Failed to refresh forecasts: {e}")
+
+    print(f"Final ChromaDB document count: {store.count()}")
 
 
 if __name__ == "__main__":

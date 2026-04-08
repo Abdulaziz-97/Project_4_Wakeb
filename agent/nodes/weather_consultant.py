@@ -18,43 +18,34 @@ llm = ChatOpenAI(
     timeout=60,
 )
 
+
+def _build_consultant_prompt() -> str:
+    today = datetime.now().strftime("%A, %B %d, %Y")
+    return (
+        f"Today's date is {today}.\n\n"
+        "You are a weather consultant. You receive a USER QUERY and possibly "
+        "a PREVIOUS ANSWER from a local vector store.\n\n"
+        "RULES:\n"
+        "1. If the previous answer already has correct, current data for the "
+        "   right location and time period — return it as-is. Say: "
+        "'Verified: answer is accurate and current.' Do NOT search.\n"
+        "2. Otherwise, call web_search ONCE with a single comprehensive query "
+        "   that covers current conditions AND the weekly forecast "
+        "   (e.g. 'Dammam Saudi Arabia weather this week forecast temperature'). "
+        "   Do NOT make multiple search calls.\n"
+        "3. After receiving the search result, compile a final answer that includes:\n"
+        "   - Concrete temperatures in Celsius\n"
+        "   - Sky conditions, humidity, wind\n"
+        "   - Multi-day forecast if available\n"
+        "   - Source URLs\n\n"
+        "Be factual. Include numbers. Do not guess."
+    )
+
+
 _react_agent = create_react_agent(
     model=llm,
     tools=[web_search],
-    prompt=(
-        "You are a weather data quality checker and consultant.\n\n"
-        "You will receive a USER QUERY and a PREVIOUS ANSWER.\n\n"
-        "The previous answer may come from different sources:\n"
-        "- Local documents (may be outdated)\n"
-        "- Live web search (likely current)\n"
-        "- A MIX of both — some parts good, some parts bad\n\n"
-        "Your FIRST job is to EVALUATE each part of the answer:\n"
-        "1. Correct location?\n"
-        "2. Concrete weather data (temperatures, conditions)?\n"
-        "3. Current data (not from a past year)?\n"
-        "4. Covers the time period asked about (e.g. 'this week')?\n\n"
-        "DECISION:\n"
-        "- ALL parts pass → Return it as-is. Do NOT search. "
-        "Say: 'Verified: answer is accurate and current.'\n"
-        "- SOME parts are good, some are bad → KEEP the good parts "
-        "(e.g. current temperatures from web). Search ONLY to replace "
-        "the bad parts (e.g. outdated forecast from old document). "
-        "Merge them into one complete answer.\n"
-        "- ALL parts bad or no previous answer → Full fresh search.\n\n"
-        "IMPORTANT: Do NOT throw away good data. If the previous answer "
-        "has correct current temperatures but is missing the weekly "
-        "forecast, only search for the forecast.\n\n"
-        "When searching, call the tool multiple times:\n"
-        "  1. Current conditions (e.g. 'Berlin current weather temperature')\n"
-        "  2. Weekly forecast (e.g. 'Berlin 7 day weather forecast')\n"
-        "  3. Warnings/advisories if relevant\n\n"
-        "Your final answer MUST include:\n"
-        "- Concrete temperature values in Celsius\n"
-        "- Sky conditions, humidity, wind\n"
-        "- Multi-day forecast if available\n"
-        "- Source URLs for every piece of data\n\n"
-        "Be factual. Include numbers. Do not guess."
-    ),
+    prompt=_build_consultant_prompt(),
 )
 
 _URL_PATTERN = re.compile(r"https?://[^\s\]\)\"',]+")
@@ -62,25 +53,22 @@ _TEMP_PATTERN = re.compile(r"-?\d+\.?\d*\s*°?[CcFf]")
 
 
 def _quick_validate(query: str, answer: str) -> bool:
-    """Fast sanity check — no LLM call. Returns True if answer looks real."""
+                                                                                  
     if not answer or len(answer.strip()) < 50:
         return False
 
     lower = answer.lower()
     query_lower = query.lower()
 
-    # Must mention at least one concrete weather indicator
     has_temp = bool(_TEMP_PATTERN.search(answer))
     has_weather_words = any(w in lower for w in [
         "temperature", "forecast", "humidity", "wind", "rain",
         "cloud", "sunny", "snow", "storm", "celsius", "fahrenheit",
     ])
 
-    # Check location overlap: at least one word from query appears in answer
     query_words = {w for w in query_lower.split() if len(w) > 3}
     has_location = any(w in lower for w in query_words) if query_words else True
 
-    # Reject obvious failures
     is_error = any(w in lower for w in [
         "unavailable", "could not", "failed to", "no results",
         "i don't have", "i cannot",
@@ -94,8 +82,8 @@ def weather_consultant(state: WeatherAgentState) -> dict:
     crag_context = ""
     if state.crag_output and state.crag_output.answer:
         action_hint = {
-            "correct": "This answer came from local documents only (may be outdated).",
-            "ambiguous": "This answer is a MIX of local documents + web search. Some parts may be good, some bad.",
+            "correct": "This answer came from the local vector store (ingested forecast data).",
+            "ambiguous": "This answer is a MIX of local documents + web search.",
             "incorrect": "Local documents were irrelevant. This answer came from web search.",
             "web_only": "This answer came entirely from web search.",
         }.get(state.crag_output.action, "")
@@ -130,11 +118,10 @@ def weather_consultant(state: WeatherAgentState) -> dict:
             max_score=0.0,
             is_high_confidence=False,
         )
-
         return {
             "crag_output": empty_output,
             "crag_rdem": None,
-            "validation_passed": True,  # Don't loop back to consultant on error
+            "validation_passed": True,
             "global_error_log": state.global_error_log + [rdem],
             "audit_trail": state.audit_trail + [
                 AgentStep(
@@ -154,20 +141,16 @@ def weather_consultant(state: WeatherAgentState) -> dict:
                 url = url.rstrip(".,;:)")
                 sources.add(url)
 
-    source_list = sorted(sources)
-
     crag_output = CRAGOutput(
         answer=response.content,
-        sources=[f"[web] {s}" for s in source_list],
+        sources=[f"[web] {s}" for s in sorted(sources)],
         action="web_only",
         scores=[],
         max_score=0.0,
         is_high_confidence=False,
     )
 
-    # Validate before ingesting — don't cache bad data
     is_good = _quick_validate(state.user_query, crag_output.answer)
-
     if is_good:
         ingest_answer(state.user_query, crag_output, node_name="weather_consultant")
 

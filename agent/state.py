@@ -5,7 +5,7 @@ from langgraph.graph.message import add_messages
 
 
 class RDEMError(BaseModel):
-    """Structured error carrier used by all agents."""
+                                                      
 
     node: str
     error_type: str
@@ -15,7 +15,7 @@ class RDEMError(BaseModel):
 
 
 class CRAGOutput(BaseModel):
-    """Direct mirror of CRAGPipeline.run() return dict."""
+                                                          
 
     answer: str
     sources: list[str]
@@ -24,7 +24,7 @@ class CRAGOutput(BaseModel):
     max_score: float = 0.0
     is_high_confidence: bool = False
     is_ingested: bool = False
-    ingested_at: str = ""  # ISO timestamp — when the cached answer was stored
+    ingested_at: str = ""
 
     @model_validator(mode="after")
     def _compute_max_score(self):
@@ -41,7 +41,7 @@ class FactCheckResult(BaseModel):
 
 
 class AgentStep(BaseModel):
-    """Audit trail entry."""
+                            
 
     node_name: str
     status: str
@@ -50,29 +50,31 @@ class AgentStep(BaseModel):
 
 
 class WeatherAgentState(BaseModel):
-    """Top-level graph state — passed to StateGraph(WeatherAgentState)."""
+                                                                          
 
     messages: Annotated[list, add_messages] = Field(default_factory=list)
     user_query: str = Field(default="")
+    voice_mode: bool = Field(default=False)
+    voice_language: str = Field(default="en")
 
-    # Step 1: Retrieval
+                    
     crag_output: Optional[CRAGOutput] = None
     crag_rdem: Optional[RDEMError] = None
     validation_passed: Optional[bool] = None
 
-    # Step 2: Writing
+             
     draft_document: Optional[str] = None
     fact_check_result: Optional[FactCheckResult] = None
     fact_fix_attempts: int = Field(default=0, ge=0, le=3)
     writer_rdem: Optional[RDEMError] = None
 
-    # Step 3: Formatting
+            
     final_latex_document: Optional[str] = None
 
-    # Orchestration
+             
     current_step: str = Field(default="retrieve")
 
-    # Observability
+                   
     audit_trail: list[AgentStep] = Field(default_factory=list)
     global_error_log: list[RDEMError] = Field(default_factory=list)
 

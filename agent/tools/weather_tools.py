@@ -8,7 +8,7 @@ logger = logging.getLogger("weather_agent")
 
 @tool
 def celsius_to_fahrenheit(celsius: float) -> float:
-    """Convert Celsius to Fahrenheit. Used for verifying temperature values in weather reports."""
+    """Convert a Celsius temperature to Fahrenheit. Returns the converted value."""
     if celsius < -273.15:
         raise ToolException(
             f"RDEM[celsius_to_fahrenheit]: {celsius}\u00b0C is below absolute zero. "
@@ -19,16 +19,12 @@ def celsius_to_fahrenheit(celsius: float) -> float:
     return result
 
 
-# ---------------------------------------------------------------------------
-#  Smart-cached web search
-# ---------------------------------------------------------------------------
 _CACHE_COLLECTION = "web_search_cache"
-_CACHE_SIMILARITY_THRESHOLD = 0.25  # cosine distance; lower = more similar
+_CACHE_SIMILARITY_THRESHOLD = 0.25
 _CACHE_TTL_HOURS = 6
 
 
 def _get_cache_store():
-    """Lazy-load the cache store to avoid import-time ChromaDB init."""
     from vectorstore.chroma_store import ChromaStore
     return ChromaStore(
         persist_dir="data/chroma_db",
@@ -37,7 +33,6 @@ def _get_cache_store():
 
 
 def _check_cache(query: str):
-    """Return cached results if a sufficiently similar query exists and is fresh."""
     try:
         store = _get_cache_store()
         if store.count() == 0:
@@ -71,7 +66,6 @@ def _check_cache(query: str):
 
 
 def _save_to_cache(query: str, entries: list[dict]):
-    """Persist Tavily search results into ChromaDB for future reuse."""
     try:
         store = _get_cache_store()
         chunks = []
@@ -97,10 +91,7 @@ def _save_to_cache(query: str, entries: list[dict]):
 
 @tool
 def web_search(query: str) -> str:
-    """Search the web for current weather information using Tavily.
-    Checks ChromaDB cache first; saves new results for future reuse."""
-
-    # 1. Check cache
+    """Search the web for current weather information using Tavily. Returns formatted search results."""
     cached = _check_cache(query)
     if cached:
         output = []
@@ -111,7 +102,6 @@ def web_search(query: str) -> str:
         logger.info(f"[web_search] Returning {len(output)} cached results")
         return "\n\n".join(output)
 
-    # 2. Live Tavily search
     from tavily import TavilyClient
     from config.settings import TAVILY_API_KEY
 
@@ -120,10 +110,8 @@ def web_search(query: str) -> str:
     results = client.search(query=query, max_results=3)
     entries = results.get("results", [])
 
-    # 3. Save to cache for future reuse
     _save_to_cache(query, entries)
 
-    # 4. Format output
     output = []
     for i, r in enumerate(entries, 1):
         content = r.get("content", "")

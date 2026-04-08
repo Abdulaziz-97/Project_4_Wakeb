@@ -2,15 +2,15 @@ from datetime import datetime
 
 from langchain_core.messages import AIMessage
 
-from agent.state import WeatherAgentState, AgentStep, RDEMError
+from agent.state import WeatherAgentState, AgentStep
 from agent.logger import log_node, get_logger
 
 _STEP_DESCRIPTIONS = {
     "retrieve": "Routing to retriever to fetch weather data via CRAG.",
     "weather_fallback": "CRAG data was insufficient. Routing to weather consultant for live web search.",
     "write": "Data retrieved successfully. Routing to writer to draft the weather report.",
-    "format": "Draft ready. Routing to formatter for LaTeX output.",
-    "done": "Pipeline complete. Final LaTeX document is ready.",
+    "format": "Draft ready. Routing to formatter for final output.",
+    "done": "Pipeline complete. Final document is ready.",
 }
 
 
@@ -23,10 +23,8 @@ def orchestration_agent(state: WeatherAgentState) -> dict:
     elif state.draft_document is not None:
         next_step = "format"
     elif state.crag_output is not None and state.validation_passed is True:
-        # Data validated (by validator fast-path or consultant) → write
         next_step = "write"
     elif state.crag_rdem is not None:
-        # Retriever crashed → consultant fallback
         next_step = "weather_fallback"
     else:
         next_step = "retrieve"

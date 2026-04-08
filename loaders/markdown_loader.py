@@ -3,7 +3,7 @@ import requests
 
 
 def load_markdown(source: str, save_dir: str = "data") -> list[dict]:
-    """Load a Markdown file from URL or local path. Returns list of {text, metadata} dicts per section."""
+                                                                                                          
     if source.startswith("http"):
         filename = os.path.join(save_dir, source.split("/")[-1])
         os.makedirs(save_dir, exist_ok=True)
@@ -36,7 +36,7 @@ def load_markdown(source: str, save_dir: str = "data") -> list[dict]:
 
 
 def _split_by_headers(text: str) -> list[str]:
-    """Split markdown text at ## headers. Keeps header with its content."""
+                                                                           
     lines = text.split("\n")
     sections = []
     current = []
