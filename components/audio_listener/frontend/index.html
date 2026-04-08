@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', sans-serif; background: transparent; }
+.listener {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; border-radius: 12px;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    border: 1px solid #334155;
+    transition: all 0.3s ease;
+}
+.listener.listening { border-color: #6366f1; }
+.listener.recording { border-color: #10b981; background: linear-gradient(135deg, #064e3b 0%, #065f46 100%); }
+.listener.processing { border-color: #f59e0b; }
+
+.mic-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #475569; flex-shrink: 0;
+    transition: all 0.3s ease;
+}
+.listener.listening .mic-dot { background: #6366f1; animation: pulse 2s infinite; }
+.listener.recording .mic-dot { background: #10b981; animation: pulse-fast 0.5s infinite; }
+.listener.processing .mic-dot { background: #f59e0b; }
+
+@keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0.5); }
+    50% { box-shadow: 0 0 0 6px rgba(99,102,241,0); }
+}
+@keyframes pulse-fast {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.6); }
+    50% { box-shadow: 0 0 0 8px rgba(16,185,129,0); }
+}
+
+.status { color: #94a3b8; font-size: 13px; font-weight: 500; }
+.listener.recording .status { color: #6ee7b7; }
+.listener.processing .status { color: #fbbf24; }
+
+.error { color: #f87171; font-size: 12px; padding: 8px; }
+</style>
+</head>
+<body>
+<div id="container">
+    <div id="listener" class="listener">
+        <div class="mic-dot"></div>
+        <div class="status" id="status">Initializing microphone...</div>
+    </div>
+</div>
+
+<script>
+const SILENCE_THRESHOLD = 0.015;
+const SILENCE_DURATION_MS = 1800;
+const MIN_RECORDING_MS = 600;
+const SAMPLE_RATE = 16000;
+
+let audioContext = null;
+let analyser = null;
+let mediaStream = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+let isRecording = false;
+let silenceTimer = null;
+let recordingStartTime = 0;
+
+function sendToStreamlit(type, data) {
+    window.parent.postMessage(
+        Object.assign({isStreamlitMessage: true, type: type}, data), "*"
+    );
+}
+
+function setReady() { sendToStreamlit("streamlit:componentReady", {apiVersion: 1}); }
+function setHeight(h) { sendToStreamlit("streamlit:setFrameHeight", {height: h}); }
+function setValue(v) { sendToStreamlit("streamlit:setComponentValue", {value: v}); }
+
+function setState(cls, text) {
+    document.getElementById("listener").className = "listener " + cls;
+    document.getElementById("status").textContent = text;
+}
+
+async function startListening() {
+    try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: { sampleRate: SAMPLE_RATE, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+        });
+
+        audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+        const source = audioContext.createMediaStreamSource(mediaStream);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.3;
+        source.connect(analyser);
+
+        setState("listening", "Listening... say \"Hey Cloud\" or \"يا كلاود\"");
+        monitorAudio();
+    } catch (err) {
+        document.getElementById("container").innerHTML =
+            "<div class='error'>Microphone access denied. Please allow mic access and refresh.</div>";
+    }
+}
+
+function getVolume() {
+    const data = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+    return Math.sqrt(sum / data.length);
+}
+
+function monitorAudio() {
+    const vol = getVolume();
+
+    if (!isRecording && vol > SILENCE_THRESHOLD) {
+        startRecording();
+    }
+
+    if (isRecording) {
+        if (vol > SILENCE_THRESHOLD) {
+            clearTimeout(silenceTimer);
+            silenceTimer = null;
+        } else if (!silenceTimer) {
+            silenceTimer = setTimeout(() => stopRecording(), SILENCE_DURATION_MS);
+        }
+    }
+
+    requestAnimationFrame(monitorAudio);
+}
+
+function startRecording() {
+    isRecording = true;
+    recordedChunks = [];
+    recordingStartTime = Date.now();
+    setState("recording", "Hearing you...");
+
+    mediaRecorder = new MediaRecorder(mediaStream, { mimeType: "audio/webm;codecs=opus" });
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = processRecording;
+    mediaRecorder.start(100);
+}
+
+function stopRecording() {
+    if (!isRecording || !mediaRecorder) return;
+
+    const elapsed = Date.now() - recordingStartTime;
+    if (elapsed < MIN_RECORDING_MS) {
+        silenceTimer = null;
+        return;
+    }
+
+    isRecording = false;
+    silenceTimer = null;
+
+    if (mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+    }
+    setState("processing", "Processing...");
+}
+
+function processRecording() {
+    const blob = new Blob(recordedChunks, { type: "audio/webm" });
+    recordedChunks = [];
+
+    if (blob.size < 1000) {
+        setState("listening", "Listening... say \"Hey Cloud\" or \"يا كلاود\"");
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+        setValue({ audio: reader.result, timestamp: Date.now() });
+        setState("listening", "Listening... say \"Hey Cloud\" or \"يا كلاود\"");
+    };
+    reader.readAsDataURL(blob);
+}
+
+window.addEventListener("message", (event) => {
+    if (event.data.type === "streamlit:render") {
+        setHeight(52);
+        if (!audioContext) startListening();
+    }
+});
+
+setReady();
+</script>
+</body>
+</html>

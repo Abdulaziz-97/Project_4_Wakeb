@@ -4,7 +4,7 @@ from pypdf import PdfReader
 
 
 def load_pdf(source: str, save_dir: str = "data") -> list[dict]:
-    """Load a PDF from a URL or local path. Returns list of {text, metadata} dicts per page."""
+                                                                                               
     if source.startswith("http"):
         filename = os.path.join(save_dir, source.split("/")[-1])
         os.makedirs(save_dir, exist_ok=True)

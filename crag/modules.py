@@ -3,7 +3,7 @@ from crag.signatures import RetrievalEvaluator, KnowledgeRefiner, QueryRewriter,
 
 
 class Evaluator(dspy.Module):
-    """Score document relevance to a query."""
+                                              
 
     def __init__(self):
         super().__init__()
@@ -19,7 +19,7 @@ class Evaluator(dspy.Module):
 
 
 class Refiner(dspy.Module):
-    """Extract key points from a document."""
+                                             
 
     def __init__(self):
         super().__init__()
@@ -31,7 +31,7 @@ class Refiner(dspy.Module):
 
 
 class Rewriter(dspy.Module):
-    """Rewrite a query for web search."""
+                                         
 
     def __init__(self):
         super().__init__()
@@ -43,7 +43,7 @@ class Rewriter(dspy.Module):
 
 
 class Generator(dspy.Module):
-    """Generate a cited answer from knowledge."""
+                                                 
 
     def __init__(self):
         super().__init__()

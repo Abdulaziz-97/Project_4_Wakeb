@@ -1,9 +1,10 @@
-"""
-Run this script to test the CRAG pipeline with sample queries.
-
-Usage:
-    python run_crag.py
-"""
+\
+\
+\
+\
+\
+\
+   
 
 import sys
 import os
@@ -16,7 +17,6 @@ from crag.pipeline import CRAGPipeline
 
 
 def setup_dspy():
-    """Configure DSPy to use DeepSeek as the LLM backend."""
     lm = dspy.LM(
         model=f"openai/{DEEPSEEK_MODEL}",
         api_key=DEEPSEEK_API_KEY,
@@ -29,24 +29,28 @@ def setup_dspy():
 
 def main():
     setup_dspy()
+
+    from agent.logger import init_run
+    init_run()
+
     pipeline = CRAGPipeline()
 
-    test_queries = [
-        # Should hit local docs (high relevance)
-        "What is the weather in berlin?",
-        # Should combine local + web (ambiguous)
-        "How does NOAA measure monthly temperature anomalies?",
-        # Should fall back to web search (low relevance)
-        "What was the weather in Tokyo last week?",
-    ]
+    queries = (
+        [sys.argv[1]]
+        if len(sys.argv) > 1
+        else [
+            "What is the weather in Riyadh today?",
+            "What is the weekly forecast for Jeddah?",
+        ]
+    )
 
-    for query in test_queries:
+    for query in queries:
         print("=" * 70)
         print(f"QUERY: {query}")
         print("=" * 70)
         result = pipeline.run(query)
-        print(f"ACTION: {result['action']}")
-        print(f"SCORES: {result['scores']}")
+        print(f"ACTION:  {result['action']}")
+        print(f"SCORES:  {result['scores']}")
         print(f"SOURCES: {result['sources']}")
         print(f"ANSWER:\n{result['answer']}")
         print()

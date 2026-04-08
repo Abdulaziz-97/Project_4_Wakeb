@@ -2,9 +2,18 @@ import chromadb
 from sentence_transformers import SentenceTransformer
 from config.settings import CHROMA_PERSIST_DIR, CHROMA_COLLECTION, EMBEDDING_MODEL, RETRIEVAL_K
 
+_shared_embedder = None
+
+
+def _get_embedder():
+    global _shared_embedder
+    if _shared_embedder is None:
+        _shared_embedder = SentenceTransformer(EMBEDDING_MODEL)
+    return _shared_embedder
+
 
 class ChromaStore:
-    """Thin wrapper around ChromaDB for document indexing and retrieval."""
+                                                                           
 
     def __init__(self, persist_dir: str = None, collection_name: str = None):
         persist_dir = persist_dir or CHROMA_PERSIST_DIR
@@ -14,10 +23,10 @@ class ChromaStore:
             name=collection_name,
             metadata={"hnsw:space": "cosine"},
         )
-        self.embedder = SentenceTransformer(EMBEDDING_MODEL)
+        self.embedder = _get_embedder()
 
     def add_documents(self, chunks: list[dict]) -> None:
-        """Index a list of {text, metadata} chunks."""
+                                                      
         if not chunks:
             return
         texts = [c["text"] for c in chunks]
@@ -33,7 +42,7 @@ class ChromaStore:
         )
 
     def query(self, query_text: str, k: int = None) -> list[dict]:
-        """Retrieve top-k documents for a query. Returns list of {text, metadata, distance}."""
+                                                                                               
         k = k or RETRIEVAL_K
         embedding = self.embedder.encode([query_text]).tolist()
         results = self.collection.query(
@@ -53,8 +62,30 @@ class ChromaStore:
     def count(self) -> int:
         return self.collection.count()
 
+    def get_where(self, where_filter: dict, limit: int = 10000) -> dict:
+\
+\
+\
+           
+        return self.collection.get(
+            where=where_filter,
+            limit=limit,
+            include=["metadatas", "documents"],
+        )
+
+    def delete_where(self, where_filter: dict) -> int:
+\
+\
+\
+           
+        results = self.collection.get(where=where_filter, include=[])
+        ids = results.get("ids", [])
+        if ids:
+            self.collection.delete(ids=ids)
+        return len(ids)
+
     def reset(self) -> None:
-        """Delete all documents in the collection."""
+                                                     
         self.client.delete_collection(CHROMA_COLLECTION)
         self.collection = self.client.get_or_create_collection(
             name=CHROMA_COLLECTION,

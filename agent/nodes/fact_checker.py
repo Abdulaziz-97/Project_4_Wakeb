@@ -4,7 +4,6 @@ from datetime import datetime
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-from langgraph.prebuilt import create_react_agent
 
 from config.settings import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from agent.state import (
@@ -13,7 +12,6 @@ from agent.state import (
     RDEMError,
     AgentStep,
 )
-from agent.tools.weather_tools import celsius_to_fahrenheit
 from agent.logger import log_node, create_tracer
 
 llm = ChatOpenAI(
@@ -24,46 +22,26 @@ llm = ChatOpenAI(
     timeout=60,
 )
 
-_react_agent = create_react_agent(
-    model=llm,
-    tools=[celsius_to_fahrenheit],
-    prompt=(
-        "You are a weather fact-checker with ReAct capabilities.\n"
-        "You have a celsius_to_fahrenheit tool. Use it to verify EVERY "
-        "temperature conversion in the draft report.\n\n"
-        "Process:\n"
-        "1. Read the draft report and identify all temperature values.\n"
-        "2. For each Celsius temperature, call celsius_to_fahrenheit to verify "
-        "the Fahrenheit value in the draft.\n"
-        "3. Compare all factual claims against the source data.\n"
-        "4. After all verifications, output ONLY this JSON (no other text):\n"
-        "{\n"
-        '  "is_factual": true or false,\n'
-        '  "issues": ["issue 1", "issue 2"],\n'
-        '  "verified_temperatures": {"<celsius_value>": <fahrenheit_result>}\n'
-        "}\n\n"
-        "ROUNDING RULE: Differences of +/-0.1 F or less between your tool "
-        "result and the draft value are acceptable rounding. Note them in "
-        "issues for transparency, but they must NOT cause is_factual to be "
-        "false.\n\n"
-        "If all facts match and temperatures are correct: is_factual = true."
-    ),
-)
-
 
 @log_node
 def writer_fact_checker(state: WeatherAgentState) -> dict:
-    user_msg = (
-        f"Source data (ground truth): {state.crag_output.answer}\n\n"
-        f"Draft report to verify:\n{state.draft_document}"
+    prompt = (
+        "You are a weather fact-checker. Verify the draft report against the source data.\n\n"
+        f"Source data (ground truth):\n{state.crag_output.answer}\n\n"
+        f"Draft report to verify:\n{state.draft_document}\n\n"
+        "Output ONLY this JSON (no other text):\n"
+        "{\n"
+        '  "is_factual": true or false,\n'
+        '  "issues": ["issue 1", "issue 2"]\n'
+        "}\n\n"
+        "Check: Do all facts match the source data? Are temperatures correct?"
     )
 
     tracer = create_tracer("fact_checker")
-    result = _react_agent.invoke(
-        {"messages": [HumanMessage(content=user_msg)]},
+    response = llm.invoke(
+        [HumanMessage(content=prompt)],
         config={"callbacks": [tracer]},
     )
-    response = result["messages"][-1]
 
     try:
         json_match = re.search(r"\{.*\}", response.content, re.DOTALL)
@@ -71,7 +49,6 @@ def writer_fact_checker(state: WeatherAgentState) -> dict:
         fact_result = FactCheckResult(
             is_factual=data["is_factual"],
             issues=data.get("issues", []),
-            verified_temperatures=data.get("verified_temperatures", {}),
         )
     except Exception:
         fact_result = FactCheckResult(
@@ -98,7 +75,6 @@ def writer_fact_checker(state: WeatherAgentState) -> dict:
             is_factual=True,
             issues=fact_result.issues
             + ["MAX ATTEMPTS REACHED -- proceeding with best effort"],
-            verified_temperatures=fact_result.verified_temperatures,
         )
         rdem = RDEMError(
             node="fact_checker",

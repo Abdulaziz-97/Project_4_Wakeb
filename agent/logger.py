@@ -1,25 +1,25 @@
-"""
-Fully dynamic pipeline logger.
-
-Shows the internal reasoning of every agent:
-  - Full LLM prompts (system + user messages)
-  - LLM responses (thoughts, reasoning)
-  - Tool calls (name, arguments, why)
-  - Tool results (observations)
-  - ReAct loop steps (Thought -> Action -> Observation -> ...)
-  - Final answers
-  - State transitions between nodes
-
-Usage:
-    from agent.logger import init_run, log_node, create_tracer
-
-    init_run("my_run")
-
-    @log_node
-    def my_node(state):
-        tracer = create_tracer("my_node")
-        result = react_agent.invoke(input, config={"callbacks": [tracer]})
-"""
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+\
+   
 
 import logging
 import os
@@ -35,9 +35,9 @@ _LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
 _RUN_ID: str | None = None
 
 
-# ══════════════════════════════════════════════════════════════════════
-#  Logger setup
-# ══════════════════════════════════════════════════════════════════════
+                                                                        
+               
+                                                                        
 
 def init_run(run_id: str | None = None) -> str:
     global _RUN_ID
@@ -77,12 +77,12 @@ def get_logger() -> logging.Logger:
     return logging.getLogger("weather_agent")
 
 
-# ══════════════════════════════════════════════════════════════════════
-#  AgentTracer — LangChain callback that logs every LLM & tool step
-# ══════════════════════════════════════════════════════════════════════
+                                                                        
+                                                                   
+                                                                        
 
 def _indent(text: str, prefix: str = "        ") -> str:
-    """Indent every line of text."""
+                                    
     return textwrap.indent(str(text), prefix)
 
 
@@ -93,11 +93,11 @@ def _trunc(text: str, n: int = 1500) -> str:
 
 
 class AgentTracer(BaseCallbackHandler):
-    """Captures the full ReAct reasoning loop inside a node.
-
-    Attach to any LangChain/LangGraph .invoke() call via:
-        config={"callbacks": [create_tracer("node_name")]}
-    """
+\
+\
+\
+\
+       
 
     def __init__(self, node_name: str):
         super().__init__()
@@ -105,7 +105,7 @@ class AgentTracer(BaseCallbackHandler):
         self.logger = logging.getLogger("weather_agent")
         self.llm_call = 0
 
-    # ── LLM calls ────────────────────────────────────────────────
+                                                                   
 
     def on_chat_model_start(self, serialized, messages, **kwargs):
         self.llm_call += 1
@@ -169,7 +169,7 @@ class AgentTracer(BaseCallbackHandler):
         elif not content:
             self.logger.debug(f"      (empty response)")
 
-    # ── Tool calls ───────────────────────────────────────────────
+                                                                   
 
     def on_tool_start(self, serialized, input_str, **kwargs):
         name = serialized.get("name", kwargs.get("name", "?"))
@@ -186,7 +186,7 @@ class AgentTracer(BaseCallbackHandler):
     def on_tool_error(self, error, **kwargs):
         self.logger.debug(f"    [{self.node_name}] TOOL ERROR: {error}")
 
-    # ── Chain/Runnable events (optional extra context) ───────────
+                                                                   
 
     def on_chain_start(self, serialized, inputs, **kwargs):
         if not serialized:
@@ -202,16 +202,16 @@ class AgentTracer(BaseCallbackHandler):
 
 
 def create_tracer(node_name: str) -> AgentTracer:
-    """Create a tracer callback for a specific node."""
+                                                       
     return AgentTracer(node_name)
 
 
-# ══════════════════════════════════════════════════════════════════════
-#  @log_node — decorator for graph node functions
-# ══════════════════════════════════════════════════════════════════════
+                                                                        
+                                                 
+                                                                        
 
 def _state_snapshot(state) -> dict:
-    """Extract key fields from WeatherAgentState for the log."""
+                                                                
     snap = {}
     for key in ("user_query", "current_step", "fact_fix_attempts"):
         val = getattr(state, key, None)
@@ -252,7 +252,7 @@ def _state_snapshot(state) -> dict:
 
 
 def log_node(func):
-    """Decorator: logs full state on entry, output dict on exit."""
+                                                                   
 
     @wraps(func)
     def wrapper(state):
