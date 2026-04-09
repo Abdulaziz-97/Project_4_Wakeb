@@ -8,7 +8,7 @@ _shared_embedder = None
 def _get_embedder():
     global _shared_embedder
     if _shared_embedder is None:
-        _shared_embedder = SentenceTransformer(EMBEDDING_MODEL)
+        _shared_embedder = SentenceTransformer(EMBEDDING_MODEL, device="cpu")
     return _shared_embedder
 
 

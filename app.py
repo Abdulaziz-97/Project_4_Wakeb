@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import time
 import logging
 import warnings
@@ -48,28 +49,72 @@ st.markdown("""
     font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px;
     color: #6ee7b7; margin-bottom: 0.4rem; font-weight: 600;
 }
+.unit-pill {
+    display: inline-flex; align-items: center; gap: 0;
+    background: #1e293b; border: 1px solid #334155; border-radius: 999px;
+    padding: 3px; user-select: none;
+}
+.unit-pill a {
+    display: inline-block; padding: 4px 14px; border-radius: 999px;
+    font-size: 0.78rem; font-weight: 700; letter-spacing: 0.5px;
+    text-decoration: none; transition: all 0.12s ease;
+    color: #64748b;
+}
+.unit-pill a.active {
+    background: #6366f1; color: #fff; box-shadow: 0 1px 4px #6366f166;
+}
 </style>
 """, unsafe_allow_html=True)
 
 
+import dspy
+from config.settings import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+
+_lm = dspy.LM(
+    model=f"openai/{DEEPSEEK_MODEL}",
+    api_key=DEEPSEEK_API_KEY,
+    api_base=DEEPSEEK_BASE_URL,
+    temperature=0.0,
+    max_tokens=2000,
+)
+try:
+    # Streamlit reruns can execute in different threads. DSPy 3.x locks settings
+    # to the thread that first configures them, so we must avoid re-configuring.
+    if getattr(dspy.settings, "lm", None) is None:
+        dspy.configure(lm=_lm)
+except RuntimeError:
+    # If another thread already configured DSPy, keep the existing settings.
+    pass
+
+
 @st.cache_resource
 def _boot():
-    import dspy
-    from config.settings import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
-    lm = dspy.LM(
-        model=f"openai/{DEEPSEEK_MODEL}",
-        api_key=DEEPSEEK_API_KEY,
-        api_base=DEEPSEEK_BASE_URL,
-        temperature=0.0,
-        max_tokens=2000,
-    )
-    dspy.configure(lm=lm)
     from agent.graph import build_graph
     return build_graph()
 
 
 _graph = _boot()
 
+_CELSIUS_RE = re.compile(r'(-?\d+(?:\.\d+)?)\s*°\s*C\b')
+_FAHRENHEIT_RE = re.compile(r'(-?\d+(?:\.\d+)?)\s*°\s*F\b')
+
+
+def _convert_temps(text: str, to_unit: str) -> str:
+    """Instant °C↔°F conversion using regex + arithmetic. No LLM, no network."""
+    if to_unit == "F":
+        def _c_to_f(m):
+            v = float(m.group(1))
+            r = (v * 9 / 5) + 32
+            out = int(r) if r == int(r) else round(r, 1)
+            return f"{out}°F"
+        return _CELSIUS_RE.sub(_c_to_f, text)
+    else:
+        def _f_to_c(m):
+            v = float(m.group(1))
+            r = (v - 32) * 5 / 9
+            out = int(r) if r == int(r) else round(r, 1)
+            return f"{out}°C"
+        return _FAHRENHEIT_RE.sub(_f_to_c, text)
 
 
 def _translate_ar_to_en(text: str) -> str:
@@ -108,15 +153,27 @@ def _run(query, voice_mode, voice_language):
 
 
 def main():
-    st.markdown("""
-    <div class="station-header">
-        <div><span class="live-dot"></span></div>
-        <div>
-            <h1>Cloud</h1>
-            <p>Always listening. Say "Hey Cloud" for voice, or type below.</p>
+    if "unit" not in st.session_state:
+        st.session_state.unit = "C"
+    if "last_output" not in st.session_state:
+        st.session_state.last_output = ""
+
+    hcol, ucol = st.columns([8, 1])
+    with hcol:
+        st.markdown("""
+        <div class="station-header">
+            <div><span class="live-dot"></span></div>
+            <div>
+                <h1>Cloud</h1>
+                <p>Always listening. Say "Hey Cloud" for voice, or type below.</p>
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+    with ucol:
+        st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+        use_f = st.toggle("°F", value=(st.session_state.unit == "F"), key="unit_toggle",
+                          help="Switch between Celsius and Fahrenheit")
+        st.session_state.unit = "F" if use_f else "C"
 
     from components.audio_listener import audio_listener
     from wake_word import detect_wake_word
@@ -146,8 +203,10 @@ def main():
 
                 output = result.get("final_latex_document", "")
                 if output:
+                    st.session_state.last_output = output
                     lang_display = "Arabic (Saudi)" if voice_language == "ar" else "English"
-                    safe_output = _html.escape(output)
+                    display = _convert_temps(output, st.session_state.unit)
+                    safe_output = _html.escape(display)
                     st.markdown(
                         f"<div class='voice-answer'>"
                         f"<div class='voice-label'>Cloud ({lang_display}):</div>"
@@ -184,12 +243,16 @@ def main():
 
         output = result.get("final_latex_document", "")
         if output:
-            from latex_renderer import render as render_latex
-            st.markdown(render_latex(output), unsafe_allow_html=True)
-            with st.expander("Raw LaTeX", expanded=False):
-                st.code(output, language="latex")
-        else:
-            st.warning("No output generated.")
+            st.session_state.last_output = output
+
+    if st.session_state.last_output:
+        from latex_renderer import render as render_latex
+        display = _convert_temps(st.session_state.last_output, st.session_state.unit)
+        st.markdown(render_latex(display), unsafe_allow_html=True)
+        with st.expander("Raw", expanded=False):
+            st.code(display, language="latex")
+    elif run_btn and text_query:
+        st.warning("No output generated.")
 
 
 if __name__ == "__main__":
